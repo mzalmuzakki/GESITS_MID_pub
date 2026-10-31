@@ -254,7 +254,7 @@ class MidService : Service() {
         val key = frameKey(s)
         if (key == lastFrameKey && now - lastFrameSent < 60_000) return null
         val b64 = renderPayload(s) ?: run {
-            if (s.screenMode == "dashboard") Bike.lastFrameInfo = "Dashboard picture too large"
+            if (s.screenMode == "dashboard") Bike.lastFrameInfo = L.t("Dashboard picture too large")
             return null
         }
         lastFrameKey = key
@@ -493,7 +493,7 @@ class MidService : Service() {
                     if (b64 != null) {
                         send(Mid.maps(b64))
                         if (s.sendRange) Bike.rangeKm()?.let { send(Mid.trip(it)) }   // right after a (slow) frame
-                        Bike.lastFrameInfo = "Picture sent: ${b64.length} chars in ${System.currentTimeMillis() - t0} ms"
+                        Bike.lastFrameInfo = (if (L.indo) "Gambar terkirim: " else "Picture sent: ") + "${b64.length} " + (if (L.indo) "karakter dalam " else "chars in ") + "${System.currentTimeMillis() - t0} ms"
                         lastFrameSent = now
                     }
                     lastFrame = System.currentTimeMillis()

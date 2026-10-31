@@ -32,8 +32,8 @@ class TripsPage(private val a: Activity, private val settings: Settings) {
         val prev = week[week.size - 2]
         val wc = Ui.card(a, col, "THIS WEEK")
         Ui.text(a, wc, "${f1(week.last())} km", 30f, bold = true)
-        Ui.text(a, wc, "$pct% of your ${target.toInt()} km target" +
-            if (prev > 0) String.format(Locale.US, "  ·  %+.0f%% vs last week", (week.last() - prev) / prev * 100) else "", 13f, Ui.MUTED)
+        Ui.text(a, wc, (if (L.indo) "$pct% dari target ${target.toInt()} km" else "$pct% of your ${target.toInt()} km target") +
+            if (prev > 0) String.format(Locale.US, if (L.indo) "  ·  %+.0f%% dari minggu lalu" else "  ·  %+.0f%% vs last week", (week.last() - prev) / prev * 100) else "", 13f, Ui.MUTED)
         wc.addView(ChartView(a, 120).apply {
             bars = true; unit = " km"
             series = listOf(ChartView.Series("km per week", Ui.GREEN, week))
@@ -63,8 +63,9 @@ class TripsPage(private val a: Activity, private val settings: Settings) {
         Ui.tile(a, r, "CYCLES (COUNTED)").text = String.format(Locale.US, "%.1f", cyc)
         Ui.tile(a, r, "CHARGES").text = "$charges"
         val midCycles = Mid.CYCLE_KEYS.firstNotNullOfOrNull { k -> Bike.telemetry.raw[k]?.let { "$k=$it" } }
-        Ui.text(a, bh, (if (L.indo) "Dihitung aplikasi ini sejak " else "Counted by this app since ") +
-            (if (since > 0) SimpleDateFormat("d MMM yyyy", indo).format(Date(since)) else "-") + ". " +
+        Ui.text(a, bh, (if (since > 0) (if (L.indo) "Dihitung aplikasi ini sejak " else "Counted by this app since ") +
+                SimpleDateFormat("d MMM yyyy", indo).format(Date(since)) + ". "
+            else if (L.indo) "Mulai dihitung saat motor terhubung. " else "Counting starts when the bike is connected. ") +
             (if (L.indo) "1 siklus = 100% baterai terpakai. " else "1 cycle = 100% of battery used. ") +
             (midCycles?.let { (if (L.indo) "Hitungan dari MID: " else "MID reports: ") + it }
                 ?: (if (L.indo) "Hitungan seumur baterai ada di BMS; MID belum melaporkannya." else "The lifetime count lives in the battery's BMS; the MID hasn't reported it.")),

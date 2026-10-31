@@ -5,6 +5,10 @@ Versions are **v\<major\>.\<xx\>.\<yy\>** (see `android/version.properties`):
 * **xx**: feature milestone (new or changed things you notice); resets yy
 * **yy**: fixes and polish only
 
+## v0.12.01
+Translation fixes found in the emulator screenshots (picture status, ETA on the MID, weekly target,
+chart labels, MID version) and clearer notification-access status.
+
 ## v0.12.00
 * **Battery health and cycles** (Trips tab): equivalent full cycles and charging sessions counted
   from the day the app is installed, usable capacity worked out from your rides, and a battery-health

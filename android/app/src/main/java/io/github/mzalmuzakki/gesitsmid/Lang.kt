@@ -70,6 +70,9 @@ object L {
         "km per 1% battery until enough is learned" to "km per 1% baterai sampai cukup dipelajari",
         "Connect to the bike to send pictures" to "Hubungkan ke motor untuk mengirim gambar",
         "Waiting for the first picture…" to "Menunggu gambar pertama…",
+        "Dashboard picture too large" to "Gambar dasbor terlalu besar",
+        "km per week" to "km per minggu", "km per day" to "km per hari", "throttle" to "gas",
+        "battery" to "baterai", "inverter" to "inverter",
         "Picture ready - it will be shown on the MID" to "Gambar siap - akan ditampilkan di MID",
         "Picture too detailed for the MID; try a simpler one" to "Gambar terlalu detail untuk MID; coba yang lebih sederhana",
         "That file is not a picture" to "File itu bukan gambar", "Could not read that picture" to "Gambar tidak bisa dibaca",
@@ -79,6 +82,9 @@ object L {
         "Reads only Google Maps navigation notifications. Nothing else, nothing leaves the phone." to
             "Hanya membaca notifikasi navigasi Google Maps. Tidak ada yang lain, tidak ada yang keluar dari HP.",
         "Allow notification access" to "Izinkan akses notifikasi",
+        "Off: tap the button, then turn on \"Gesits MID directions\"." to "Belum aktif: ketuk tombol, lalu aktifkan \"Gesits MID directions\".",
+        "Ready: start navigation in Google Maps" to "Siap: mulai navigasi di Google Maps",
+        "MID version" to "Versi MID",
         "SPEED WARNING" to "PERINGATAN KECEPATAN", "Off" to "Mati",
         "Warn on the MID above this speed" to "Peringatan di MID di atas kecepatan ini",
         // trips

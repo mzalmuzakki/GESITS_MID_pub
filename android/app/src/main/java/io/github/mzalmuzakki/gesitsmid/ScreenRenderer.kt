@@ -133,7 +133,7 @@ object ScreenRenderer {
         c.drawText(n.distance ?: "", 132f, 58f, paint(40f, TEXT))
         val street = n.street.take(26)
         c.drawText(street, 132f, 86f, paint(16f, TEXT))
-        if (n.eta != null) c.drawText("ETA ${n.eta}", 132f, 110f, paint(14f, MUTED))
+        if (n.eta != null) c.drawText((if (L.indo) "Tiba " else "ETA ") + n.eta, 132f, 110f, paint(14f, MUTED))
     }
 
     /** BIG page for riding: battery %, power and range only, in large type. */

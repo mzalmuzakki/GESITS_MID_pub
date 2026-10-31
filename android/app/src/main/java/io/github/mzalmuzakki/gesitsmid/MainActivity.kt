@@ -290,7 +290,7 @@ class MainActivity : Activity() {
             else -> "○ " + L.t("Not connected")
         }
         connTitle.setTextColor(if (Bike.connected) Ui.GREEN else if (Bike.running) Ui.AMBER else Ui.MUTED)
-        connSub.text = name + (Bike.telemetry.raw["VER"]?.let { "\nMID version $it" } ?: "") +
+        connSub.text = name + (Bike.telemetry.raw["VER"]?.let { "\n" + L.t("MID version") + " $it" } ?: "") +
             (if (Bike.running && !Bike.connected) "\n" + Bike.status else "")
         connBtn.text = L.t(if (Bike.running) "Disconnect" else "Connect")
 
@@ -448,7 +448,7 @@ class MainActivity : Activity() {
     private fun refreshMid() {
         if (!::preview.isInitialized) return
         Bike.lastFrame?.let { if (preview.tag !== it) { preview.setImageBitmap(it); preview.tag = it } }
-        previewInfo.text = Bike.lastFrameInfo.ifEmpty { if (Bike.connected) "Waiting for the first picture…" else "Connect to the bike to send pictures" }
+        previewInfo.text = Bike.lastFrameInfo.ifEmpty { L.t(if (Bike.connected) "Waiting for the first picture…" else "Connect to the bike to send pictures") }
         val now = System.currentTimeMillis()
         ackText.text = listOf("MAPS" to "picture", "TIME" to "clock", "NAV" to "text", "TRIP" to "range").joinToString("\n") { (k, label) ->
             val sent = Bike.sentAt[k]; val ack = Bike.ackAt[k]
@@ -462,12 +462,12 @@ class MainActivity : Activity() {
             String.format(Locale.US, "%-8s %s", label, state)
         }
         navStatus.text = when {
-            !notificationAccessOn() -> "⚠ " + L.t("Allow notification access")
+            !notificationAccessOn() -> "⚠ " + L.t("Off: tap the button, then turn on \"Gesits MID directions\".")
             Bike.navFresh() -> Bike.nav!!.let { "→ ${it.distance ?: ""} ${it.street}" }
-            else -> "✓ Google Maps"
+            else -> "✓ " + L.t("Ready: start navigation in Google Maps")
         }
         rangeInfo.text = synchronized(Bike.range) { Bike.range.describe() } +
-            (Bike.rangeKm()?.let { String.format(Locale.US, " → %.0f km now", it) } ?: "")
+            (Bike.rangeKm()?.let { String.format(Locale.US, if (L.indo) " → %.0f km sekarang" else " → %.0f km now", it) } ?: "")
     }
 
     // ================================================================ TRIPS

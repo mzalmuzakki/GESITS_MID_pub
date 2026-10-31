@@ -46,7 +46,7 @@ class ChartView(ctx: Context, private val heightDp: Int = 140) : View(ctx) {
         var lx = left
         series.forEach { s ->
             fill.color = s.color; c.drawRect(lx, 2 * dp, lx + 8 * dp, 10 * dp, fill)
-            c.drawText(s.label, lx + 11 * dp, 10 * dp, text); lx += text.measureText(s.label) + 24 * dp
+            val lb = L.t(s.label); c.drawText(lb, lx + 11 * dp, 10 * dp, text); lx += text.measureText(lb) + 24 * dp
         }
         val n = series.maxOf { it.values.size }.coerceAtLeast(1)
         val step = (right - left) / n
