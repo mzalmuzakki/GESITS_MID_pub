@@ -12,6 +12,10 @@ What it does, in a loop:
 
 The layout matches `python -m gesits screen --preview screen.png`, so you can design on a PC first.
 
+> **Note:** this firmware still draws the earlier 350×220 layout. The MID's visible map area is
+> 320×128 (see docs/PROTOCOL.md), which the Android app and Python tools now use. Port
+> `ScreenRenderer.kt`'s layout before building this.
+>
 > **Status:** written from the protocol in `docs/PROTOCOL.md` and syntax-checked, but **not yet
 > compiled for, or run on, a real ESP32 or bike** (the toolchain wasn't available where it was
 > written). Expect to fix small things on the first build. Please report what the serial monitor prints.

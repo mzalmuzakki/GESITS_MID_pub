@@ -1,7 +1,7 @@
 """Custom MID screen: draws live data as a 350x220 picture for AT+MAPS.
 
-Layout (designed at 350x160, scaled into the area not covered by the MID's own widgets;
-on a real G1 the MID shows the picture's top ~164 px inside its red map frame):
+Layout (320x128 = the MID's visible map area; GRID Mobile's MID pictures use this size.
+350x220 pictures - GESITS Dashboard's size - spill under the MID's own widgets):
 
   +------------------------------------------------+
   | 12:34   82 km              [D]  [ ECO ]        |  clock, adaptive range, gear, mode
@@ -19,7 +19,7 @@ from typing import Optional
 
 from .protocol import Telemetry
 
-W, H = 350, 220
+W, H = 320, 128   # GRID Mobile's MID pictures are 320x128 = the visible map area
 
 BG = (12, 14, 18)
 PANEL = (30, 34, 42)
@@ -64,68 +64,73 @@ def _fmt(v: Optional[float], spec: str = ".0f", none: str = "--") -> str:
     return none if v is None else format(v, spec)
 
 
-DW, DH = 350, 160          # dashboard design size, scaled into the free area of the 350x220 picture
-DEFAULT_MARGINS = (0, 0, 0, 56)   # left, top, right, bottom: MID widgets cover the bottom ~56 px
+DW, DH = 320, 128          # dashboard design size = the MID's visible map area
+DEFAULT_MARGINS = (0, 0, 0, 0)    # left, top, right, bottom (pixels) if the MID covers an edge
 
 
 def render(tel: Telemetry, now: Optional[time.struct_time] = None, range_km: Optional[float] = None,
            margins=DEFAULT_MARGINS):
-    """Return the 350x220 picture for AT+MAPS: the dashboard drawn in the free area left
-    by `margins` (same layout as the Android app's ScreenRenderer.kt)."""
+    """Return the 320x128 picture for AT+MAPS (same layout as the Android app's ScreenRenderer.kt).
+    Text positions are baselines (anchor "ls"), exactly like Android's Canvas.drawText."""
     from PIL import Image, ImageDraw
 
     now = now or time.localtime()
     rng = range_km if range_km is not None else tel.range_km
     dash = Image.new("RGB", (DW, DH), BG)
     d = ImageDraw.Draw(dash)
-    f_small, f_med, f_big = _font(13), _font(20), _font(44)
+    f12, f14, f18, f38 = _font(12), _font(14), _font(18), _font(38)
+
+    def txt(x, y, s, f, fill):
+        d.text((x, y), s, font=f, fill=fill, anchor="ls")
 
     # row 1: clock, range, gear, mode
-    d.text((8, 3), time.strftime("%H:%M", now), font=f_med, fill=TEXT)
+    txt(6, 17, time.strftime("%H:%M", now), f18, TEXT)
     if rng is not None:
-        d.text((92, 6), f"{_fmt(rng)} km", font=_font(16), fill=MUTED)
+        txt(72, 16, f"{_fmt(rng)} km", f14, MUTED)
     mode = tel.drive_mode or "--"
     mc = MODE_COLOURS.get(mode, MUTED)
-    mw = d.textlength(mode, font=f_small) + 16
-    d.rounded_rectangle((DW - 8 - mw, 4, DW - 8, 25), radius=6, fill=mc)
-    d.text((DW - 8 - mw + 8, 7), mode, font=f_small, fill=BG)
+    mw = d.textlength(mode, font=f12) + 14
+    d.rounded_rectangle((DW - 6 - mw, 2, DW - 6, 20), radius=5, fill=mc)
+    txt(DW - 6 - mw + 7, 16, mode, f12, BG)
     gear = {"PARK": "P", "DRIVE": "D"}.get(tel.park_state or "", "-")
     gc = AMBER if gear == "P" else GREEN if gear == "D" else MUTED
-    d.rounded_rectangle((DW - 16 - mw - 24, 4, DW - 16 - mw, 25), radius=6, outline=gc, width=2)
-    d.text((DW - 16 - mw - 16, 7), gear, font=f_small, fill=gc)
+    d.rounded_rectangle((DW - 12 - mw - 20, 2, DW - 12 - mw, 20), radius=5, outline=gc, width=2)
+    txt(DW - 12 - mw - 14, 16, gear, f12, gc)
 
     # row 2: battery, power
     soc = tel.get_float("SOC")
     socc = RED if soc is not None and soc <= 20 else AMBER if soc is not None and soc <= 35 else GREEN
-    d.text((8, 26), _fmt(soc) + "%", font=f_big, fill=TEXT)
-    d.rounded_rectangle((8, 80, 162, 92), radius=4, fill=PANEL)
+    txt(6, 60, _fmt(soc) + "%", f38, TEXT)
+    d.rounded_rectangle((6, 66, 150, 76), radius=4, fill=PANEL)
     if soc:
-        d.rounded_rectangle((8, 80, 8 + 154 * max(0.0, min(soc, 100)) / 100, 92), radius=4, fill=socc)
-    d.line((175, 34, 175, 94), fill=PANEL, width=2)
+        d.rounded_rectangle((6, 66, 6 + 144 * max(0.0, min(soc, 100)) / 100, 76), radius=4, fill=socc)
+    d.rectangle((159, 26, 160, 76), fill=PANEL)
     p = tel.power_w
-    d.text((188, 36), (_fmt(p / 1000, ".1f") if p is not None else "--") + " kW", font=f_med, fill=TEXT)
-    d.text((188, 60), "REGEN" if p is not None and p < 0 else "POWER", font=f_small, fill=MUTED)
-    d.rounded_rectangle((188, 80, 342, 92), radius=4, fill=PANEL)
+    txt(170, 44, (_fmt(p / 1000, ".1f") if p is not None else "--") + " kW", f18, TEXT)
+    txt(170, 60, "REGEN" if p is not None and p < 0 else "POWER", f12, MUTED)
+    d.rounded_rectangle((170, 66, 314, 76), radius=4, fill=PANEL)
     if p:
         frac = max(0.0, min(abs(p) / MAX_POWER_W, 1.0))
-        d.rounded_rectangle((188, 80, 188 + 154 * frac, 92), radius=4, fill=GREEN if p < 0 else BLUE)
+        d.rounded_rectangle((170, 66, 170 + 144 * frac, 76), radius=4, fill=GREEN if p < 0 else BLUE)
 
     # row 3: temperatures or error banner
     errs = tel.errors if tel.error_mask else []
     if errs:
-        d.rounded_rectangle((4, 102, DW - 4, DH - 2), radius=8, fill=RED)
-        d.text((14, 106), "ERROR", font=f_med, fill=TEXT)
-        d.text((14, 134), errs[0][:40], font=f_small, fill=TEXT)
+        d.rounded_rectangle((4, 82, DW - 4, DH - 2), radius=6, fill=RED)
+        txt(12, 101, "ERROR", f18, TEXT)
+        txt(12, 119, errs[0][:40], f12, TEXT)
     else:
-        tw = (DW - 8 - 16) / 3
+        tw = (DW - 8 - 12) / 3
         for i, (label, key) in enumerate([("BAT", "TBAT"), ("MOT", "TMOT"), ("INV", "TINV")]):
-            x0 = 4 + i * (tw + 8)
+            x0 = 4 + i * (tw + 6)
             v = tel.get_float(key)
-            d.rounded_rectangle((x0, 102, x0 + tw, DH - 2), radius=8, fill=PANEL)
-            d.text((x0 + 8, 106), label, font=f_small, fill=MUTED)
-            d.text((x0 + 8, 126), _fmt(v) + "\u00b0C", font=f_med, fill=_temp_colour(key, v))
+            d.rounded_rectangle((x0, 82, x0 + tw, DH - 2), radius=6, fill=PANEL)
+            txt(x0 + 7, 97, label, f12, MUTED)
+            txt(x0 + 7, 120, _fmt(v) + "\u00b0C", f18, _temp_colour(key, v))
 
     left, top, right, bottom = margins
+    if margins == (0, 0, 0, 0):
+        return dash
     cw, ch = max(40, W - left - right), max(30, H - top - bottom)
     sc = min(cw / DW, ch / DH)
     img = Image.new("RGB", (W, H), BG)
@@ -149,9 +154,9 @@ def calibration_grid():
     for y in range(50, H, 50):
         d.text((2, y - 14), str(y), font=f, fill=(255, 255, 0))
     d.rectangle((1, 1, W - 2, H - 2), outline=(255, 0, 0), width=3)
-    d.rectangle((20, 20, W - 20, H - 20), outline=(0, 255, 0), width=3)
-    d.text((W // 2 - 14, 22), "TOP", font=_font(14), fill=(0, 255, 255))
-    d.text((W // 2 - 30, H // 2 - 8), "350x220", font=_font(16), fill=(255, 255, 255))
+    d.rectangle((10, 10, W - 10, H - 10), outline=(0, 255, 0), width=3)
+    d.text((W // 2 - 14, 12), "TOP", font=_font(14), fill=(0, 255, 255))
+    d.text((W // 2 - 30, H // 2 - 8), f"{W}x{H}", font=_font(16), fill=(255, 255, 255))
     return img
 
 

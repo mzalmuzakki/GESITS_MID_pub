@@ -5,6 +5,7 @@ Two sources:
 | | App | What it gives us |
 |---|---|---|
 | **A** | Old official Gesits app `com.gesits.app.mobile` 1.5.2 (`Gesits_Mod_1.5.2.apk`) | What the factory app sends. Code only, not tested by us. |
+| **C** | Community **GRID Mobile** `xyz.potasyyum.gridmobile` 1.2.0 (React Native / Hermes bytecode) | Widely used with real bikes. Adds `AT+VER?`, `AT+ARROW="1"`, date on `AT+NAV`, and 320×128 MID pictures. |
 | **B** | Community **GESITS Dashboard** `com.gesits.dashboard` 1.0.1.17 (web app https://gesits.pages.dev in an Android wrapper) | Used on real bikes. Its code comments record fixes "verified directly on the motor". **Where A and B disagree, follow B.** |
 
 Labels used below: ✅ = confirmed on a bike (according to B's comments) · 🟡 = used by a working app but no
@@ -91,7 +92,16 @@ it as decimal unless it starts with `0x`, which contradicts its own `0800` = bit
 | `AT+MAPS="<base64 JPEG>"` | Picture in the map area | ✅ |
 | `AT+ODO="<km>"` | **Writes the odometer** (B uses it to "sync" upward) | 🟡 not in our tools |
 | `AT+END` | End of session (A sends it without CR LF) | 🟡 |
+| `AT+VER?` | MID firmware version (C shows "MID ver …") | 🟡 |
+| `AT+ARROW="1"` | Sent once on connect by C; effect unknown | ❓ |
 | `AT+MAPON="1"/"0"`, `AT+MAPEND` | Map mode on/off (A only; B never sends these) | ❓ |
+
+### GRID Mobile's connect sequence (C)
+C keeps a command list, sends each entry with 10 ms between them, and **removes an entry once the
+MID answers with that key**. That includes the writes: TIME, NAV, ARROW and MAPS get an answer
+too. Initial list: `AT+TIME="HHmm"`, `AT+VER?`, `AT+MODE?`, `AT+MAPS="<logo>"`,
+`AT+NAV="<date, e.g. 31 Oktober 2026>"`, `AT+ARROW="1"`, then the usual queries. Queries are
+re-added after a few seconds to keep polling.
 
 ### AT+NAV text rules ✅
 * ASCII only. B strips accents and replaces other characters with spaces.
@@ -109,6 +119,12 @@ it as decimal unless it starts with `0x`, which contradicts its own `0800` = bit
   screen (cropped JPEG) or show a fixed custom picture such as a logo or wallpaper.
 * A instead sent a 164 × 88, 4-colour, 2-bit-packed hex bitmap (`gesits/mapimage.py`, `--legacy`). That
   is probably for old MID firmware. Use JPEG.
+
+### Picture size: use 320 × 128
+GRID Mobile's built-in MID pictures (GRID logos and others) are all **320 × 128** baseline JPEGs of
+about 4,000 base64 chars, with content centred on black. That is the MID's visible map area. Our photo
+of a 350 × 220 picture shows the extra area spilling under the MID's own widgets. The tools in this repo
+now use 320 × 128.
 
 ### Seen on a real G1 (photo, 350×220 JPEG via the community-built app in this repo)
 * The picture's top-left sits just inside the MID's red map frame, about 55 px below the frame's top edge.

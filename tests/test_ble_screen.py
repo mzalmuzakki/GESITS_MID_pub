@@ -30,13 +30,13 @@ class Screen(unittest.TestCase):
         for extra in ([], [("ERR", "0800"), ("IBAT", "-12"), ("SOC", "15")]):
             tel.update(extra)
             img = screen.render(tel, time.strptime("09:41", "%H:%M"))
-            self.assertEqual(img.size, (350, 220))
+            self.assertEqual(img.size, (320, 128))
             b64, q, _ = mapimage.jpeg_to_base64(img)
             self.assertLessEqual(len(b64), 7000)
 
     def test_render_with_no_data(self):
         img = screen.render(screen.Telemetry())
-        self.assertEqual(img.size, (350, 220))
+        self.assertEqual(img.size, (320, 128))
 
 
 if __name__ == "__main__":

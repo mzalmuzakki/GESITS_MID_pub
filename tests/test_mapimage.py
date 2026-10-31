@@ -44,7 +44,7 @@ class Jpeg(unittest.TestCase):
         noisy = Image.effect_noise((1200, 900), 80).convert("RGB")
         b64, q, img = m.jpeg_to_base64(noisy)
         self.assertLessEqual(len(b64), 7000)
-        self.assertEqual(Image.open(io.BytesIO(base64.b64decode(b64))).size, (350, 220))
+        self.assertEqual(Image.open(io.BytesIO(base64.b64decode(b64))).size, (320, 128))
         with self.assertRaises(ValueError):
             m.jpeg_to_base64(noisy, width=400)
 

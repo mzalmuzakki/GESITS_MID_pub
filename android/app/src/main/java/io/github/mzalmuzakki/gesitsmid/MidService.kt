@@ -52,11 +52,13 @@ class Settings(ctx: Context) {
     var screenMode: String get() = p.getString("screen", "dashboard")!!; set(v) = p.edit().putString("screen", v).apply()
     var sendRange: Boolean get() = p.getBoolean("range", true); set(v) = p.edit().putBoolean("range", v).apply()
     var syncTime: Boolean get() = p.getBoolean("time", true); set(v) = p.edit().putBoolean("time", v).apply()
+    /** Show today's date on the MID text line when no own text is set (like GRID Mobile). */
+    var navDate: Boolean get() = p.getBoolean("navDate", true); set(v) = p.edit().putBoolean("navDate", v).apply()
     var navText: String get() = p.getString("nav", "")!!; set(v) = p.edit().putString("nav", v).apply()
     var kmPerPercent: Float get() = p.getFloat("kmpp", 1.0f); set(v) = p.edit().putFloat("kmpp", v).apply()
     var rangeState: String? get() = p.getString("rangeState", null); set(v) = p.edit().putString("rangeState", v).apply()
     var margins: ScreenRenderer.Margins
-        get() = ScreenRenderer.Margins(p.getInt("mL", 0), p.getInt("mT", 0), p.getInt("mR", 0), p.getInt("mB", 56))
+        get() = ScreenRenderer.Margins(p.getInt("mL", 0), p.getInt("mT", 0), p.getInt("mR", 0), p.getInt("mB", 0))
         set(v) = p.edit().putInt("mL", v.left).putInt("mT", v.top).putInt("mR", v.right).putInt("mB", v.bottom).apply()
     var frameSeconds: Int get() = p.getInt("frameSec", 3); set(v) = p.edit().putInt("frameSec", v).apply()
 }
@@ -191,6 +193,8 @@ class MidService : Service() {
                     lastFrame = System.currentTimeMillis() - s.frameSeconds * 1000L + 1500   // first frame after some data
                     lastTime = 0L; lastMinute = -1   // set the MID clock right after connecting
                     Bike.telemetry.raw.clear()         // never pair old values with new ones (range learning)
+                    send(Mid.VERSION_QUERY)            // MID firmware version (shown in the app)
+                    send(Mid.ARROW_ON)                 // as GRID Mobile does on connect
                 }
                 val now = System.currentTimeMillis()
 
@@ -236,7 +240,7 @@ class MidService : Service() {
                     Bike.rangeKm()?.let { send(Mid.trip(it)) }
                     lastTrip = now
                 }
-                val parts = Mid.splitNav(s.navText)
+                val parts = Mid.splitNav(s.navText).ifEmpty { if (s.navDate) listOf(Mid.dateText()) else emptyList() }
                 if (parts.isNotEmpty() && now - lastNav >= 5000) {
                     navIdx %= parts.size
                     send(Mid.nav(parts[navIdx++]))

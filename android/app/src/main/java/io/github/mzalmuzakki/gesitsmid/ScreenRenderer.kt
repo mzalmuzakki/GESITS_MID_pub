@@ -36,11 +36,11 @@ object ScreenRenderer {
         if (v == null) MUTED else if (v >= crit) RED else if (v >= warn) AMBER else TEXT
 
     /** Margins (pixels of the 350x220 MID picture) that the MID's own widgets cover. */
-    data class Margins(val left: Int = 0, val top: Int = 0, val right: Int = 0, val bottom: Int = 56)
+    data class Margins(val left: Int = 0, val top: Int = 0, val right: Int = 0, val bottom: Int = 0)
 
-    // The dashboard is designed on a 350 x 160 canvas and scaled into the free area.
-    private const val DW = 350f
-    private const val DH = 160f
+    // The dashboard is designed for the 320 x 128 MID map area and scaled into it (minus margins).
+    private const val DW = 320f
+    private const val DH = 128f
 
     fun render(t: Telemetry, rangeKm: Float?, m: Margins = Margins()): Bitmap {
         val bmp = Bitmap.createBitmap(Mid.FRAME_W, Mid.FRAME_H, Bitmap.Config.ARGB_8888)
@@ -63,52 +63,52 @@ object ScreenRenderer {
             box.color = col
             box.style = if (stroke) Paint.Style.STROKE else Paint.Style.FILL
             box.strokeWidth = 2f
-            c.drawRoundRect(RectF(l, top, r, b), 6f, 6f, box)
+            c.drawRoundRect(RectF(l, top, r, b), 5f, 5f, box)
         }
-        val small = paint(13f, MUTED); val med = paint(20f, TEXT); val big = paint(44f, TEXT)
+        val small = paint(12f, MUTED); val med = paint(18f, TEXT); val big = paint(38f, TEXT)
 
-        // row 1: clock, gear, mode
-        c.drawText(SimpleDateFormat("HH:mm", Locale.US).format(Date()), 8f, 21f, med)
+        // row 1 (0-20): clock, adaptive range, gear, mode
+        c.drawText(SimpleDateFormat("HH:mm", Locale.US).format(Date()), 6f, 17f, med)
+        if (rangeKm != null) c.drawText("${fmt(rangeKm)} km", 72f, 16f, paint(14f, MUTED))
         val mode = t.mode ?: "--"
         val mc = when (mode) { "ECO" -> GREEN; "URBAN" -> BLUE; "SPORT" -> RED; else -> MUTED }
-        val mw = small.measureText(mode) + 16f
-        rr(w - 8 - mw, 4f, w - 8, 25f, mc)
-        c.drawText(mode, w - 8 - mw + 8, 20f, paint(13f, BG))
+        val mw = small.measureText(mode) + 14f
+        rr(w - 6 - mw, 2f, w - 6, 20f, mc)
+        c.drawText(mode, w - 6 - mw + 7, 16f, paint(12f, BG))
         val gear = t.gear ?: "-"
         val gc = when (gear) { "P" -> AMBER; "D" -> GREEN; else -> MUTED }
-        rr(w - 16 - mw - 24, 4f, w - 16 - mw, 25f, gc, stroke = true)
-        c.drawText(gear, w - 16 - mw - 16, 20f, paint(13f, gc))
-        if (rangeKm != null) c.drawText("${fmt(rangeKm)} km", 92f, 21f, paint(16f, MUTED))
+        rr(w - 12 - mw - 20, 2f, w - 12 - mw, 20f, gc, stroke = true)
+        c.drawText(gear, w - 12 - mw - 14, 16f, paint(12f, gc))
 
-        // row 2: battery (left) and power (right)
+        // row 2 (24-76): battery (left), power (right)
         val soc = t.f("SOC")
-        c.drawText(fmt(soc) + "%", 8f, 72f, big)
-        rr(8f, 80f, 162f, 92f, PANEL)
-        if (soc != null && soc > 0) rr(8f, 80f, 8f + 154f * soc.coerceIn(0f, 100f) / 100f, 92f,
+        c.drawText(fmt(soc) + "%", 6f, 60f, big)
+        rr(6f, 66f, 150f, 76f, PANEL)
+        if (soc != null && soc > 0) rr(6f, 66f, 6f + 144f * soc.coerceIn(0f, 100f) / 100f, 76f,
             if (soc <= 20) RED else if (soc <= 35) AMBER else GREEN)
         box.color = PANEL; box.style = Paint.Style.FILL
-        c.drawRect(Rect(174, 34, 176, 94), box)
+        c.drawRect(Rect(159, 26, 161, 76), box)
         val p = t.powerW
-        c.drawText((if (p == null) "--" else String.format(Locale.US, "%.1f", p / 1000f)) + " kW", 188f, 56f, med)
-        c.drawText(if (p != null && p < 0) "REGEN" else "POWER", 188f, 73f, small)
-        rr(188f, 80f, 342f, 92f, PANEL)
-        if (p != null && p != 0f) rr(188f, 80f, 188f + 154f * (abs(p) / MAX_POWER_W).coerceIn(0f, 1f), 92f, if (p < 0) GREEN else BLUE)
+        c.drawText((if (p == null) "--" else String.format(Locale.US, "%.1f", p / 1000f)) + " kW", 170f, 44f, med)
+        c.drawText(if (p != null && p < 0) "REGEN" else "POWER", 170f, 60f, small)
+        rr(170f, 66f, 314f, 76f, PANEL)
+        if (p != null && p != 0f) rr(170f, 66f, 170f + 144f * (abs(p) / MAX_POWER_W).coerceIn(0f, 1f), 76f, if (p < 0) GREEN else BLUE)
 
-        // row 3: temperatures, or error banner
+        // row 3 (82-126): temperatures, or error banner
         val errs = t.errors
         if (errs.isNotEmpty()) {
-            rr(4f, 102f, w - 4, DH - 2, RED)
-            c.drawText("ERROR", 14f, 124f, med)
-            c.drawText(errs.first().take(40), 14f, 148f, paint(13f, TEXT))
+            rr(4f, 82f, w - 4, DH - 2, RED)
+            c.drawText("ERROR", 12f, 101f, med)
+            c.drawText(errs.first().take(40), 12f, 119f, paint(12f, TEXT))
         } else {
             val tiles = listOf(Triple("BAT", "TBAT", 45f to 55f), Triple("MOT", "TMOT", 70f to 85f), Triple("INV", "TINV", 70f to 85f))
-            val tw = (w - 8 - 16) / 3
+            val tw = (w - 8 - 12) / 3
             tiles.forEachIndexed { i, (label, key, lim) ->
-                val x0 = 4 + i * (tw + 8)
+                val x0 = 4 + i * (tw + 6)
                 val v = t.f(key)
-                rr(x0, 102f, x0 + tw, DH - 2, PANEL)
-                c.drawText(label, x0 + 8, 120f, small)
-                c.drawText(fmt(v) + "\u00B0C", x0 + 8, 148f, paint(20f, tempColour(v, lim.first, lim.second)))
+                rr(x0, 82f, x0 + tw, DH - 2, PANEL)
+                c.drawText(label, x0 + 7, 97f, small)
+                c.drawText(fmt(v) + "\u00B0C", x0 + 7, 120f, paint(18f, tempColour(v, lim.first, lim.second)))
             }
         }
     }
@@ -130,9 +130,9 @@ object ScreenRenderer {
         for (y in 50 until Mid.FRAME_H step 50) c.drawText("$y", 2f, y - 2f, lbl)
         val edge = Paint().apply { style = Paint.Style.STROKE; strokeWidth = 3f }
         edge.color = Color.RED; c.drawRect(1.5f, 1.5f, Mid.FRAME_W - 1.5f, Mid.FRAME_H - 1.5f, edge)
-        edge.color = Color.GREEN; c.drawRect(20f, 20f, Mid.FRAME_W - 20f, Mid.FRAME_H - 20f, edge)
-        c.drawText("TOP", Mid.FRAME_W / 2f - 14, 34f, paint(14f, Color.CYAN))
-        c.drawText("350x220", Mid.FRAME_W / 2f - 30, Mid.FRAME_H / 2f + 5, paint(16f, Color.WHITE))
+        edge.color = Color.GREEN; c.drawRect(10f, 10f, Mid.FRAME_W - 10f, Mid.FRAME_H - 10f, edge)
+        c.drawText("TOP", Mid.FRAME_W / 2f - 14, 26f, paint(14f, Color.CYAN))
+        c.drawText("${Mid.FRAME_W}x${Mid.FRAME_H}", Mid.FRAME_W / 2f - 30, Mid.FRAME_H / 2f + 5, paint(16f, Color.WHITE))
         return bmp
     }
 

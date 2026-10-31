@@ -1,7 +1,8 @@
 """Pictures for the MID map area (AT+MAPS).
 
-Current format (GESITS Dashboard, works on real bikes): a base64 JPEG, typically
-350 x 220 px, at most 7000 base64 chars; quality is lowered until it fits.
+Current format (works on real bikes): a base64 JPEG, at most 7000 base64 chars; quality is
+lowered until it fits. GRID Mobile uses 320 x 128 (the visible map area, our default);
+GESITS Dashboard uses 350 x 220, which spills under the MID's own widgets.
 MID limits noted there: width max 350, height max ~500. See jpeg_to_base64().
 
 Legacy format (old official app, possibly older MID firmware): a 164x88 4-colour
@@ -115,7 +116,7 @@ def codes_to_image(codes: Sequence[Sequence[int]], scale: int = 4):
 
 # --- Current format: base64 JPEG ---------------------------------------------
 
-JPEG_W, JPEG_H = 350, 220
+JPEG_W, JPEG_H = 320, 128   # GRID Mobile's MID pictures; the MID's visible map area
 MAPS_MAX_CHARS = 7000
 MID_MAX_W, MID_MAX_H = 350, 500
 

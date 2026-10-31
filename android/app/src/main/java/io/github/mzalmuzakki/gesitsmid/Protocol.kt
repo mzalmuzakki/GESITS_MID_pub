@@ -14,8 +14,10 @@ object Mid {
 
     const val NAV_MAX = 20
     const val MAPS_MAX_CHARS = 7000
-    const val FRAME_W = 350
-    const val FRAME_H = 220
+    /** Picture size for AT+MAPS. GRID Mobile's built-in MID pictures are all 320x128, which is
+     *  the visible map area; bigger pictures (350x220) spill under the MID's own widgets. */
+    const val FRAME_W = 320
+    const val FRAME_H = 128
 
     /** One key is polled every 200 ms, round robin. */
     val POLL_KEYS = listOf("SPD", "IBAT", "VBAT", "SOC", "ODO", "MODE", "PARK", "ERR", "TBAT", "TMOT", "TINV", "SOH")
@@ -24,6 +26,15 @@ object Mid {
     fun time(hour: Int, minute: Int) = String.format(Locale.US, "AT+TIME=\"%02d%02d\"\r\n", hour, minute)
     fun trip(km: Float) = String.format(Locale.US, "AT+TRIP=\"%.1f\"\r\n", km)
     fun maps(base64Jpeg: String) = "AT+MAPS=\"$base64Jpeg\"\r\n"
+
+    /** Sent once on connect by GRID Mobile (meaning unknown - kept for compatibility). */
+    const val ARROW_ON = "AT+ARROW=\"1\"\r\n"
+    /** MID firmware version (GRID Mobile shows it as "MID ver ..."). */
+    const val VERSION_QUERY = "AT+VER?\r\n"
+
+    /** Today's date as GRID Mobile shows it on the MID text line, e.g. "31 Oktober 2026". */
+    fun dateText(d: java.util.Date = java.util.Date()): String =
+        java.text.SimpleDateFormat("d MMMM yyyy", Locale("id", "ID")).format(d)
 
     /** AT+NAV with exactly 20 chars: the MID only redraws changed characters. */
     fun nav(text: String): String = "AT+NAV=\"" + navAscii(text).take(NAV_MAX).padEnd(NAV_MAX) + "\"\r\n"

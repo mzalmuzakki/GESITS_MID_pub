@@ -222,7 +222,7 @@ class MainActivity : Activity() {
         header(root, "Dashboard position on the MID")
         root.addView(TextView(this).apply {
             text = "The MID's own widgets cover part of the picture. These margins (in pixels of the " +
-                "350x220 picture) keep the dashboard in the free area. Send the calibration grid, " +
+                "320x128 picture) keep the dashboard in the free area. Send the calibration grid, " +
                 "take a photo, and read off which numbers are still visible."
             setTextColor(Color.GRAY)
         })
@@ -240,7 +240,7 @@ class MainActivity : Activity() {
         val posRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         button(posRow, "Save position") {
             fun v(e: EditText, max: Int) = (e.text.toString().toIntOrNull() ?: 0).coerceIn(0, max)
-            settings.margins = ScreenRenderer.Margins(v(eL, 300), v(eT, 180), v(eR, 300), v(eB, 180))
+            settings.margins = ScreenRenderer.Margins(v(eL, 280), v(eT, 100), v(eR, 280), v(eB, 100))
             settings.screenMode = "dashboard"; recreateUiState(); toast("Saved - shown on the next picture")
         }
         button(posRow, "Send calibration grid") { settings.screenMode = "grid"; recreateUiState(); toast("The grid goes to the MID within a few seconds") }
@@ -252,7 +252,11 @@ class MainActivity : Activity() {
             setTextColor(Color.WHITE); setHintTextColor(Color.GRAY); inputType = InputType.TYPE_CLASS_TEXT
         }
         root.addView(nav)
-        button(root, "Save text (rotates every 5 s; empty = off)") {
+        root.addView(CheckBox(this).apply {
+            text = "When empty, show today's date (e.g. 31 Oktober 2026)"; isChecked = settings.navDate; setTextColor(Color.WHITE)
+            setOnCheckedChangeListener { _, b -> settings.navDate = b }
+        })
+        button(root, "Save text (rotates every 5 s)") {
             settings.navText = nav.text.toString(); toast("Saved: " + Mid.splitNav(settings.navText).joinToString(" | "))
         }
 
@@ -367,7 +371,7 @@ class MainActivity : Activity() {
 
     private fun refresh() {
         val name = settings.deviceName?.let { "$it (${if (settings.linkType == "ble") "BLE" else "Classic"})" } ?: "no bike chosen"
-        status.text = "${Bike.status}\nBike: $name"
+        status.text = "${Bike.status}\nBike: $name" + (Bike.telemetry.raw["VER"]?.let { "\nMID version: $it" } ?: "")
         val t = Bike.telemetry
         fun v(k: String, unit: String = "") = t.raw[k]?.let { "$it$unit" } ?: "--"
         val p = t.powerW?.let { String.format(Locale.US, "%.0f W", it) } ?: "--"
