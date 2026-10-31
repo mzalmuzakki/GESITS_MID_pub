@@ -1,10 +1,12 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
 }
 
 // Version lives in android/version.properties (one place to edit per release).
-val ver = java.util.Properties().apply { rootProject.file("version.properties").inputStream().use { load(it) } }
+val ver = Properties().apply { rootProject.file("version.properties").inputStream().use { stream -> load(stream) } }
 val vMajor = ver.getProperty("major").trim().toInt()
 val vXx = ver.getProperty("xx").trim().toInt()
 val vYy = ver.getProperty("yy").trim().toInt()

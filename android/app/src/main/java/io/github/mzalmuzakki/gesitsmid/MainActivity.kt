@@ -82,9 +82,17 @@ class MainActivity : Activity() {
             orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(18), dp(14), dp(14), dp(8))
         }
-        top.addView(TextView(this).apply {
+        val titleBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        titleBox.addView(TextView(this).apply {
             text = "Gesits MID"; textSize = 22f; setTypeface(typeface, Typeface.BOLD); setTextColor(Ui.TEXT)
-        }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        })
+        val by = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        by.addView(TextView(this).apply { text = "by "; textSize = 11f; setTextColor(Ui.MUTED) })
+        by.addView(ImageView(this).apply {
+            setImageResource(R.drawable.cakra_horizontal); adjustViewBounds = true; contentDescription = "CAKRA Labs"
+        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(18)))
+        titleBox.addView(by)
+        top.addView(titleBox, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
         statusChip = TextView(this).apply { textSize = 13f; setPadding(dp(12), dp(6), dp(12), dp(6)) }
         top.addView(statusChip)
         root.addView(top)
@@ -482,8 +490,19 @@ class MainActivity : Activity() {
                 .setPrimaryClip(android.content.ClipData.newPlainText("Gesits MID log", text))
             toast("Log copied")
         }
-        Ui.text(this, col, "Gesits MID v" + try { packageManager.getPackageInfo(packageName, 0).versionName } catch (_: Exception) { "?" },
-            11f, Ui.MUTED).gravity = Gravity.CENTER
+        val ab = Ui.card(this, col, "ABOUT")
+        ab.addView(ImageView(this).apply {
+            setImageResource(R.drawable.cakra_stacked); adjustViewBounds = true; contentDescription = "CAKRA Labs logo"
+        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(110)).apply {
+            gravity = Gravity.CENTER_HORIZONTAL; setMargins(0, dp(4), 0, dp(10))
+        })
+        Ui.text(this, ab, "Gesits MID v" + try { packageManager.getPackageInfo(packageName, 0).versionName } catch (_: Exception) { "?" },
+            16f, bold = true).gravity = Gravity.CENTER
+        Ui.text(this, ab, "Made by CAKRA Labs · Universitas Pertamina\nAn open, community tool - not an official Gesits app.",
+            13f, Ui.MUTED).gravity = Gravity.CENTER
+        Ui.secondary(this, ab, "cakra-labs.id") {
+            try { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://cakra-labs.id/"))) } catch (_: Exception) { toast("No browser found") }
+        }
         return sv
     }
 

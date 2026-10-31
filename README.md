@@ -1,5 +1,12 @@
 # GESITS display
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/img/cakra_dark.png">
+  <img src="docs/img/cakra_light.png" alt="CAKRA Labs" height="48">
+</picture>
+
+A **CAKRA Labs** project (Universitas Pertamina) · [cakra-labs.id](https://cakra-labs.id/)
+
 Tools for talking to the **Gesits G1** electric motorcycle's MID (dashboard) over Bluetooth:
 read live data, set the clock, and put your own text and pictures on the stock MID screen.
 

@@ -6,7 +6,7 @@ Versions are **v\<major\>.\<xx\>.\<yy\>** (see `android/version.properties`):
 * **yy**: fixes and polish only
 
 ## v0.10.00
-New UI with Home / MID / Trips / Tools tabs, guided setup, cards and switches. Security fixes:
+CAKRA Labs name and logo (top bar and Tools → About). New UI with Home / MID / Trips / Tools tabs, guided setup, cards and switches. Security fixes:
 demo mode can't be triggered by other apps, parking coordinates aren't logged, "Delete all my data".
 
 ## Earlier milestones (before version numbers were introduced)

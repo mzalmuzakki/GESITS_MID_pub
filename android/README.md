@@ -1,5 +1,12 @@
 # Gesits MID - Android app
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="../docs/img/cakra_dark.png">
+  <img src="../docs/img/cakra_light.png" alt="CAKRA Labs" height="48">
+</picture>
+
+Made by **CAKRA Labs** · Universitas Pertamina · [cakra-labs.id](https://cakra-labs.id/). A community tool, not an official Gesits app.
+
 Your own small app for the Gesits G1 dashboard (MID). Every line is in this folder, and
 GitHub Actions builds it, so you know exactly what you install.
 

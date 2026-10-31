@@ -8,7 +8,12 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write   # to publish the APK on the "android-latest" release
+  contents: write
+
+# A newer push cancels a run still in progress (two runs replacing the same release page clash).
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true   # to publish the APK on the "android-latest" release
 
 jobs:
   build:
