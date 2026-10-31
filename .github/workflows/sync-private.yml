@@ -1,0 +1,32 @@
+name: Sync to private repo
+
+# Copies every push on the public repo's main branch into the private repo
+# (mzalmuzakki/GESITS_display, branch ccr-9b2d12ac-qsfr7j).
+#
+# One-time setup in the PUBLIC repo: Settings -> Secrets and variables -> Actions ->
+# New repository secret  PRIVATE_REPO_TOKEN  = a fine-grained personal access token
+# with "Contents: Read and write" on mzalmuzakki/GESITS_display only.
+# Without the secret this workflow does nothing.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  sync:
+    if: github.repository == 'mzalmuzakki/GESITS_MID_pub'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Push to private repo
+        env:
+          TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
+        run: |
+          if [ -z "$TOKEN" ]; then
+            echo "PRIVATE_REPO_TOKEN secret not set - skipping sync"
+            exit 0
+          fi
+          git push "https://x-access-token:${TOKEN}@github.com/mzalmuzakki/GESITS_display.git" HEAD:refs/heads/ccr-9b2d12ac-qsfr7j

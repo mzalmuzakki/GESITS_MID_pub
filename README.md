@@ -76,6 +76,13 @@ about 500). The base64 text must stay **≤ 7000 characters**, so quality drops 
 pictures. Simple, high-contrast graphics look best. `--legacy` uses the old official app's 164 × 88,
 4-colour format instead.
 
+## Repositories
+
+* Public: https://github.com/mzalmuzakki/GESITS_MID_pub (`main`). GitHub Actions builds the Android APK
+  here and publishes it on the **android-latest** release.
+* Private copy: `mzalmuzakki/GESITS_display`. Kept in sync by `.github/workflows/sync-private.yml`
+  once the `PRIVATE_REPO_TOKEN` secret is set in the public repo.
+
 ## Roadmap
 
 1. ✅ Protocol recovered from the app, plus Python toolkit and simulator

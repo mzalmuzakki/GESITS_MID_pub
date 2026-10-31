@@ -12,6 +12,8 @@ permissions:
 
 jobs:
   build:
+    # Build only in the public repo (free Actions minutes); skipped in the private copy.
+    if: github.repository == 'mzalmuzakki/GESITS_MID_pub'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
