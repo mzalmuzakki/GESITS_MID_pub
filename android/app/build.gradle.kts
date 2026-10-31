@@ -32,7 +32,10 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            // R8: removes unused code and resources -> smaller APK, less RAM to load it.
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"))
             signingConfig = if (ownKey != null) signingConfigs.getByName("own") else signingConfigs.getByName("debug")
         }
     }

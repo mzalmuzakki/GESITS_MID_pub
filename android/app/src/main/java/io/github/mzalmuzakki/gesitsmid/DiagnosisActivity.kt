@@ -68,8 +68,8 @@ class DiagnosisActivity : Activity() {
         Ui.text(a, col, "Alarms work while the app is connected (also with the screen off).", 12f, Ui.MUTED)
     }
 
-    override fun onResume() { super.onResume(); ui.post(tick) }
-    override fun onPause() { super.onPause(); ui.removeCallbacks(tick) }
+    override fun onResume() { super.onResume(); Bike.uiFast = true; ui.post(tick) }
+    override fun onPause() { super.onPause(); Bike.uiFast = false; ui.removeCallbacks(tick) }
 
     private fun refresh() {
         val t = Bike.telemetry

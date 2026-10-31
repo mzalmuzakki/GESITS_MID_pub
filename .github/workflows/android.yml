@@ -15,6 +15,8 @@ jobs:
     # Build only in the public repo (free Actions minutes); skipped in the private copy.
     if: github.repository == 'mzalmuzakki/GESITS_MID_pub'
     runs-on: ubuntu-latest
+    outputs:
+      apk: ${{ steps.apk.outputs.file }}
     steps:
       - uses: actions/checkout@v4
 
@@ -50,7 +52,7 @@ jobs:
       - name: Build signed APK
         env:
           GESITS_KEYSTORE_PASSWORD: ${{ secrets.GESITS_KEYSTORE_PASSWORD }}
-        run: gradle -p android testReleaseUnitTest assembleRelease --no-daemon --stacktrace
+        run: gradle -p android testReleaseUnitTest assembleRelease --no-daemon
 
       - name: Name and checksum
         id: apk
@@ -77,3 +79,41 @@ jobs:
             --notes "Built by GitHub Actions from commit ${{ github.sha }}.
           SHA-256: ${{ steps.apk.outputs.sha }}
           Permissions: Bluetooth, foreground service, notifications. No internet."
+
+  # Screenshots + memory use from an Android 14 emulator, published on the "android-screenshots" release.
+  screenshots:
+    needs: build
+    if: github.repository == 'mzalmuzakki/GESITS_MID_pub'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ needs.build.outputs.apk }}
+          path: apk
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          script: bash .github/scripts/screenshots.sh
+
+      - name: Publish screenshots
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete android-screenshots --yes --cleanup-tag || true
+          gh release create android-screenshots shots/* --prerelease --target "${{ github.sha }}" \
+            --title "App screenshots - build ${{ github.run_number }}" \
+            --notes "Android 14 emulator, demo data (no bike). memory.txt has the app's RAM use."

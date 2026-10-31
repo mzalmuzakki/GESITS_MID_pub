@@ -28,8 +28,8 @@ class SpeedoActivity : Activity() {
         setContentView(view)
     }
 
-    override fun onResume() { super.onResume(); view.running = true; view.postInvalidate() }
-    override fun onPause() { super.onPause(); view.running = false }
+    override fun onResume() { super.onResume(); Bike.uiFast = true; view.running = true; view.postInvalidate() }
+    override fun onPause() { super.onPause(); Bike.uiFast = false; view.running = false }
 }
 
 class SpeedoView(ctx: Context) : View(ctx) {

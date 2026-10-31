@@ -20,7 +20,7 @@ class StatsActivity : Activity() {
     private lateinit var settings: Settings
     private lateinit var col: LinearLayout
     private val exportReq = 7
-    private val id = Locale("id", "ID")
+    private val indo = Locale("id", "ID")
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -31,7 +31,7 @@ class StatsActivity : Activity() {
         build()
     }
 
-    private fun rp(v: Float) = "Rp " + NumberFormat.getIntegerInstance(id).format(v.toLong())
+    private fun rp(v: Float) = "Rp " + NumberFormat.getIntegerInstance(indo).format(v.toLong())
     private fun f1(v: Float) = String.format(Locale.US, "%.1f", v)
 
     private fun build() {
@@ -62,7 +62,7 @@ class StatsActivity : Activity() {
         val wk = ChartView(this).apply {
             bars = true; unit = " km"
             series = listOf(ChartView.Series("km per week", Ui.GREEN, week))
-            val f = SimpleDateFormat("d MMM", id)
+            val f = SimpleDateFormat("d MMM", indo)
             val start = st.startOfWeek(now)
             xLabels = (7 downTo 0).map { back -> f.format(Date(start - back * 7L * 24 * 3600 * 1000)) }
         }
@@ -73,7 +73,7 @@ class StatsActivity : Activity() {
         col.addView(ChartView(this).apply {
             bars = true; unit = " km"
             series = listOf(ChartView.Series("km per day", Color.rgb(60, 140, 255), days))
-            val f = SimpleDateFormat("EEE", id)
+            val f = SimpleDateFormat("EEE", indo)
             xLabels = (6 downTo 0).map { back -> f.format(Date(now - back * 24L * 3600 * 1000)) }
         })
 
@@ -87,13 +87,13 @@ class StatsActivity : Activity() {
             "${settings.kmPerLitre.toInt()} km/L at ${rp(settings.rpPerLitre)}/L; electricity ${rp(settings.rpPerKwh)}/kWh.", 12f, Ui.MUTED)
 
         Ui.header(a, col, "Records")
-        val df = SimpleDateFormat("d MMM yyyy", id)
+        val df = SimpleDateFormat("d MMM yyyy", indo)
         Ui.text(a, col, "Longest ride: " + (st.longest?.let { "${f1(it.km)} km (${df.format(Date(it.startMs))})" } ?: "--"))
         Ui.text(a, col, "Most efficient (≥ 2 km): " + (st.mostEfficient?.let { String.format(Locale.US, "%.0f Wh/km (%s)", it.whPerKm, df.format(Date(it.startMs))) } ?: "--"))
         Ui.text(a, col, "Top speed: " + (st.topSpeed?.let { "${it.toInt()} km/h" } ?: "--"))
 
         Ui.header(a, col, "Ride history")
-        val tf = SimpleDateFormat("EEE d MMM, HH:mm", id)
+        val tf = SimpleDateFormat("EEE d MMM, HH:mm", indo)
         if (rides.isEmpty()) Ui.text(a, col, "No rides yet. Rides are recorded automatically while the app is connected.", 13f, Ui.MUTED)
         rides.takeLast(30).reversed().forEach { ride ->
             Ui.text(a, col, String.format(Locale.US, "%s  %.1f km  %s  %d→%d%%  max %d km/h", tf.format(Date(ride.startMs)), ride.km,

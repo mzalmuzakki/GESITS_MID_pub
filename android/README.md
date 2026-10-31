@@ -38,6 +38,17 @@ GitHub Actions builds it, so you know exactly what you install.
 | Writes odometer | **never** | yes (`AT+ODO=`) |
 | Source | this repo, built by GitHub Actions | closed APK |
 
+## Battery and memory
+* The background loop sleeps until the next job is due, instead of waking 50 times a second.
+* Values are polled at different rates: power and speed every 1 s, battery % every 5 s, temperatures
+  every 15 s, battery health every 60 s. Three times slower while parked; faster only while the
+  Speedometer or Diagnosis screen is open.
+* A MID picture is sent only when what it shows changes (re-sent once a minute). The JPEG search
+  starts from the last quality that fitted, so it usually takes 1–2 encodes.
+* The wake lock is held **only while the bike is connected**. With the bike off, reconnect attempts
+  back off from 2 s to 60 s, and the app **stops itself after 60 minutes** without the bike.
+* State is saved every 60 s rather than constantly. There are no libraries, and R8 shrinks the APK.
+
 ## Install
 1. On your phone, open the repo on GitHub → **Releases** → **android-latest** → download `GesitsMid-N.apk`.
 2. Open it and allow "install unknown apps" for your browser when Android asks (only needed once).

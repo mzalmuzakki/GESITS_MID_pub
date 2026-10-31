@@ -94,3 +94,35 @@ object Parking {
         }
     }
 }
+
+/** Fake live data and rides, used only when the app is launched with the "demo" flag (screenshots). */
+object Demo {
+    fun load(ctx: Context) {
+        val t = Bike.telemetry
+        listOf("SPD" to "38", "SOC" to "78", "SOH" to "96", "ODO" to "3812.4", "MODE" to "1", "PARK" to "0",
+            "VBAT" to "79.6", "IBAT" to "21.5", "TBAT" to "36", "TMOT" to "54", "TINV" to "47", "TRT" to "42",
+            "ERR" to "0", "VER" to "demo").forEach { (k, v) -> t.put(k, v) }
+        Bike.connected = true
+        Bike.status = "Demo data (no bike connected)"
+        val now = System.currentTimeMillis()
+        synchronized(Bike.samples) {
+            Bike.samples.clear()
+            for (i in 0 until 600) {
+                val x = i / 30.0
+                val spd = (35 + 15 * Math.sin(x)).toFloat().coerceAtLeast(0f)
+                Bike.samples.addLast(Sample(now - (600 - i) * 1000L, spd, (spd * 45 + 300 * Math.cos(x * 1.7)).toFloat(),
+                    (spd * 1.1f), 34f + i / 120f, 48f + i / 60f, 43f + i / 100f))
+            }
+        }
+        if (RideStore.all(ctx).isEmpty()) {
+            val day = 24 * 3600_000L
+            listOf(0 to 12.4f, 1 to 18.2f, 1 to 6.1f, 2 to 22.7f, 4 to 9.8f, 5 to 31.5f, 8 to 14.0f, 10 to 26.3f, 15 to 19.9f, 22 to 40.2f)
+                .forEach { (d, km) ->
+                    val start = now - d * day - 3 * 3600_000L
+                    RideStore.add(ctx, Ride(start, start + (km * 110_000).toLong(), km, km * 29.5f, km * 2.1f,
+                        90f, 90f - km * 1.4f, 58f + km / 3, (km * 100_000).toLong()))
+                }
+        }
+        synchronized(Bike.trip) { Bike.trip.update(3800f, 86f, null, null, now); Bike.trip.update(3812.4f, 78f, null, null, now) }
+    }
+}

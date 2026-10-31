@@ -13,7 +13,10 @@ import android.content.pm.ServiceInfo
 import android.graphics.Bitmap
 import android.os.Build
 import android.os.IBinder
+import java.text.SimpleDateFormat
 import java.util.Calendar
+import java.util.Date
+import java.util.Locale
 import java.util.concurrent.LinkedBlockingQueue
 
 /** Shared state between the service and the screen. */
@@ -40,6 +43,9 @@ object Bike {
     /** Last ~10 minutes of per-second samples for the Diagnosis charts; guard with synchronized(samples). */
     val samples = ArrayDeque<Sample>()
     fun addSample(x: Sample) = synchronized(samples) { samples.addLast(x); while (samples.size > 600) samples.removeFirst() }
+
+    /** True while the Speedometer or Diagnosis screen is visible: poll live values faster. */
+    @Volatile var uiFast = false
 
     /** Automatic ride recording and alarms (used only by the service thread). */
     val recorder = RideRecorder()
@@ -83,6 +89,8 @@ class Settings(ctx: Context) {
     var parkLat: Float get() = p.getFloat("parkLat", 0f); set(v) = p.edit().putFloat("parkLat", v).apply()
     var parkLon: Float get() = p.getFloat("parkLon", 0f); set(v) = p.edit().putFloat("parkLon", v).apply()
     var parkTime: Long get() = p.getLong("parkTime", 0L); set(v) = p.edit().putLong("parkTime", v).apply()
+    /** Stop the service after the bike has been off this many minutes (0 = never). */
+    var autoStopMin: Int get() = p.getInt("autoStop", 60); set(v) = p.edit().putInt("autoStop", v).apply()
     var rangeState: String? get() = p.getString("rangeState", null); set(v) = p.edit().putString("rangeState", v).apply()
     var margins: ScreenRenderer.Margins
         get() = ScreenRenderer.Margins(p.getInt("mL", 0), p.getInt("mT", 0), p.getInt("mR", 0), p.getInt("mB", 0))
@@ -200,18 +208,50 @@ class MidService : Service() {
         lastSend = System.currentTimeMillis()
     }
 
-    private fun picturePayload(s: Settings): String? = when (s.screenMode) {
+    /**
+     * The picture to send, or null when nothing visible changed (the MID keeps showing the last one).
+     * Unchanged pictures are still re-sent once a minute in case the MID was restarted.
+     */
+    private fun picturePayload(s: Settings, now: Long): String? {
+        val key = frameKey(s)
+        if (key == lastFrameKey && now - lastFrameSent < 60_000) return null
+        val b64 = renderPayload(s) ?: run {
+            if (s.screenMode == "dashboard") Bike.lastFrameInfo = "Dashboard picture too large"
+            return null
+        }
+        lastFrameKey = key
+        return b64
+    }
+
+    /** Everything that is drawn, rounded the way it is shown. Same key = same picture. */
+    private fun frameKey(s: Settings): String {
+        if (s.screenMode != "dashboard") {
+            val pic = if (s.screenMode == "picture") java.io.File(filesDir, "picture.b64").lastModified() else 0L
+            return s.screenMode + pic + s.margins
+        }
+        val t = Bike.telemetry
+        val p = t.powerW?.let { Math.round(it / 100f) }   // 0.1 kW
+        val trip = synchronized(Bike.trip) { "${Math.round(Bike.trip.km * 10)}/${Math.round(Bike.trip.energyWh)}" }
+        return listOf(pageFor(s, frameNo + 1), SimpleDateFormat("HH:mm", Locale.US).format(Date()), t.raw["SOC"], t.mode, t.gear,
+            p, t.raw["TBAT"], t.raw["TMOT"], t.raw["TINV"], t.errorMask, Bike.rangeKm()?.let { Math.round(it) }, trip, s.margins).joinToString("|")
+    }
+
+    private fun pageFor(s: Settings, n: Int): ScreenRenderer.Page {
+        val moving = (Bike.telemetry.f("SPD") ?: 0f) > 3f
+        return when (s.dashStyle) {
+            "main" -> ScreenRenderer.Page.MAIN
+            "trip" -> ScreenRenderer.Page.TRIP
+            "big" -> ScreenRenderer.Page.BIG
+            "rotate" -> ScreenRenderer.Page.values()[n % 3]
+            else -> if (moving) ScreenRenderer.Page.BIG
+                    else if ((n / 2) % 2 == 0) ScreenRenderer.Page.MAIN else ScreenRenderer.Page.TRIP
+        }
+    }
+
+    private fun renderPayload(s: Settings): String? = when (s.screenMode) {
         "dashboard" -> {
             frameNo++
-            val moving = (Bike.telemetry.f("SPD") ?: 0f) > 3f
-            val page = when (s.dashStyle) {
-                "main" -> ScreenRenderer.Page.MAIN
-                "trip" -> ScreenRenderer.Page.TRIP
-                "big" -> ScreenRenderer.Page.BIG
-                "rotate" -> ScreenRenderer.Page.values()[frameNo % 3]
-                else -> if (moving) ScreenRenderer.Page.BIG
-                        else if ((frameNo / 2) % 2 == 0) ScreenRenderer.Page.MAIN else ScreenRenderer.Page.TRIP
-            }
+            val page = pageFor(s, frameNo)
             val bmp = synchronized(Bike.trip) { ScreenRenderer.render(Bike.telemetry, Bike.rangeKm(), s.margins, page, Bike.trip) }
             Bike.lastFrame = bmp
             ScreenRenderer.toMapsBase64(bmp)
@@ -222,29 +262,78 @@ class MidService : Service() {
         else -> null
     }
 
+    /**
+     * Poll periods (ms) per key. Power/speed often, slow-changing values rarely. Parked: x3.
+     * While the Speedometer or Diagnosis screen is open ([Bike.uiFast]) the live values go faster.
+     */
+    private fun pollPeriod(key: String, parked: Boolean, fast: Boolean): Long {
+        val base = when (key) {
+            "SPD" -> if (fast) 300L else 1000L
+            "IBAT" -> if (fast) 500L else 1000L
+            "VBAT" -> if (fast) 1000L else 2000L
+            "ODO", "PARK" -> 3000L
+            "SOC", "MODE" -> 5000L
+            "ERR" -> 10_000L
+            "TBAT", "TMOT", "TINV" -> 15_000L
+            "SOH" -> 60_000L
+            "TRT" -> if (fast) 500L else 30_000L
+            else -> 10_000L
+        }
+        return if (parked && !fast) base * 3 else base
+    }
+
+    private val lastPolled = HashMap<String, Long>()
+    private var lastFrameKey = ""
+    private var lastFrameSent = 0L
+
+    private fun saveState(s: Settings) {
+        s.rangeState = synchronized(Bike.range) { Bike.range.save() }
+        s.tripState = synchronized(Bike.trip) { Bike.trip.save() }
+    }
+
     private fun runLoop() {
         val s = Settings(this)
-        var keyIdx = 0
         var navIdx = 0
-        var lastPoll = 0L; var lastFrame = 0L; var lastTrip = 0L; var lastNav = 0L; var lastTime = 0L
+        var lastFrame = 0L; var lastTrip = 0L; var lastNav = 0L; var lastTime = 0L
         var lastMinute = -1; var lastLearn = 0L; var lastSave = 0L
+        var backoff = 2000L; var offSince = 0L
         Bike.loadRange(s)
         Bike.loadTrip(s)
         while (Bike.running) {
             try {
                 if (link?.isOpen != true) {
+                    val t = System.currentTimeMillis()
+                    if (Bike.connected || lastSave != 0L) { saveState(s); lastSave = 0L }
+                    holdWakeLock(false)                      // bike off: let the phone sleep between retries
                     // Not connected (e.g. ignition off): close the ride after the idle time.
-                    Bike.recorder.tick(System.currentTimeMillis())?.let { rideFinished(it, s) }
+                    Bike.recorder.tick(t)?.let { rideFinished(it, s) }
                     link?.close()
                     link = openLink(s)
-                    if (link == null) { Thread.sleep(2000); continue }
+                    if (link == null) {
+                        if (offSince == 0L) offSince = t
+                        if (s.autoStopMin > 0 && t - offSince > s.autoStopMin * 60_000L) {
+                            setStatus("Bike off for ${s.autoStopMin} min - stopped to save battery")
+                            Bike.running = false
+                            stopForeground(STOP_FOREGROUND_REMOVE); stopSelf()
+                            break
+                        }
+                        Thread.sleep(backoff)
+                        backoff = minOf(backoff * 2, 60_000L)   // 2, 4, 8 ... 60 s
+                        continue
+                    }
+                    backoff = 2000L; offSince = 0L
+                    holdWakeLock(true)
                     lastFrame = System.currentTimeMillis() - s.frameSeconds * 1000L + 1500   // first frame after some data
                     lastTime = 0L; lastMinute = -1   // set the MID clock right after connecting
+                    lastFrameKey = ""; lastPolled.clear(); lastSave = System.currentTimeMillis()
                     Bike.telemetry.raw.clear()         // never pair old values with new ones (range learning)
                     send(Mid.VERSION_QUERY)            // MID firmware version (shown in the app)
                     send(Mid.ARROW_ON)                 // as GRID Mobile does on connect
                 }
                 val now = System.currentTimeMillis()
+                val tm = Bike.telemetry
+                val parked = tm.gear == "P" && (tm.f("SPD") ?: 0f) < 1f
+                val fast = Bike.uiFast
 
                 while (true) {
                     val cmd = Bike.outbox.poll() ?: break
@@ -252,11 +341,18 @@ class MidService : Service() {
                     if (!cmd.startsWith("AT+MAPS")) Bike.log("-> " + cmd.trim())
                 }
 
-                if (now - lastPoll >= 200) {
-                    send(Mid.query(Mid.POLL_KEYS[keyIdx]))
-                    keyIdx = (keyIdx + 1) % Mid.POLL_KEYS.size
-                    lastPoll = now
+                // Poll the single most overdue key (one command in flight at a time).
+                var nextPoll = Long.MAX_VALUE
+                var due: String? = null; var dueScore = 1.0
+                for (k in Mid.POLL_KEYS) {
+                    val period = pollPeriod(k, parked, fast)
+                    val last = lastPolled[k] ?: 0L
+                    val score = (now - last).toDouble() / period
+                    if (score >= dueScore) { due = k; dueScore = score }
+                    nextPoll = minOf(nextPoll, last + period)
                 }
+                if (due != null) { send(Mid.query(due)); lastPolled[due] = now; nextPoll = now + 200 }
+
                 // Clock: on connect, whenever the phone's minute changes, and every 30 s as a safety net.
                 if (s.syncTime) {
                     val c = Calendar.getInstance()
@@ -266,9 +362,8 @@ class MidService : Service() {
                         lastMinute = minute; lastTime = now
                     }
                 }
-                // Adaptive range: learn from ODO vs SOC once per second, save when something was learned.
+                // Once per second: charts, ride recording, parking, alarms, trip and range learning.
                 if (now - lastLearn >= 1000) {
-                    val tm = Bike.telemetry
                     Bike.addSample(Sample(now, tm.f("SPD"), tm.powerW, tm.f("TRT"), tm.f("TBAT"), tm.f("TMOT"), tm.f("TINV")))
                     Bike.recorder.sample(now, tm.f("SPD"), tm.f("ODO"), tm.f("SOC"), tm.f("VBAT"), tm.f("IBAT"))
                         ?.let { rideFinished(it, s) }
@@ -281,19 +376,14 @@ class MidService : Service() {
                             .forEach { Alerts.notify(this, it) }
                     }
                     synchronized(Bike.trip) { Bike.trip.update(tm.f("ODO"), tm.f("SOC"), tm.f("VBAT"), tm.f("IBAT"), now) }
-                    val odo = Bike.telemetry.f("ODO"); val soc = Bike.telemetry.f("SOC")
+                    val odo = tm.f("ODO"); val soc = tm.f("SOC")
                     if (odo != null && soc != null) {
                         val learned = synchronized(Bike.range) {
                             Bike.range.priorKmPerPercent = s.kmPerPercent
                             Bike.range.update(odo, soc, now)
                         }
-                        // also save regularly, so a quick reconnect continues the same segment
-                        if (learned || now - lastSave >= 10_000) {
-                            s.rangeState = synchronized(Bike.range) { Bike.range.save() }
-                            s.tripState = synchronized(Bike.trip) { Bike.trip.save() }
-                            lastSave = now
-                        }
                         if (learned) Bike.log("Range learned: " + synchronized(Bike.range) { Bike.range.describe() })
+                        if (learned || now - lastSave >= 60_000) { saveState(s); lastSave = now }
                     }
                     lastLearn = now
                 }
@@ -303,24 +393,31 @@ class MidService : Service() {
                     lastTrip = now
                 }
                 val parts = Mid.splitNav(s.navText).ifEmpty { if (s.navDate) listOf(Mid.dateText()) else emptyList() }
-                if (parts.isNotEmpty() && now - lastNav >= 5000) {
+                if (parts.isNotEmpty() && now - lastNav >= 5000 && (parts.size > 1 || now - lastNav >= 60_000)) {
                     navIdx %= parts.size
-                    send(Mid.nav(parts[navIdx++]))
+                    send(Mid.nav(parts[navIdx++]))     // one fixed line: refreshed once a minute only
                     lastNav = now
                 }
                 if (s.screenMode != "off" && now - lastFrame >= s.frameSeconds * 1000L) {
                     val t0 = System.currentTimeMillis()
-                    val b64 = picturePayload(s)
+                    val b64 = picturePayload(s, now)
                     if (b64 != null) {
                         send(Mid.maps(b64))
                         if (s.sendRange) Bike.rangeKm()?.let { send(Mid.trip(it)) }   // right after a (slow) frame
                         Bike.lastFrameInfo = "Picture sent: ${b64.length} chars in ${System.currentTimeMillis() - t0} ms"
-                    } else if (s.screenMode == "dashboard") {
-                        Bike.lastFrameInfo = "Dashboard picture too large"
+                        lastFrameSent = now
                     }
                     lastFrame = System.currentTimeMillis()
                 }
-                Thread.sleep(20)
+
+                // Sleep until the next thing is due; a command from the UI wakes us early.
+                val nextDue = minOf(nextPoll, lastLearn + 1000, if (s.sendRange) lastTrip + 1000 else Long.MAX_VALUE,
+                    lastFrame + s.frameSeconds * 1000L)
+                val wait = (nextDue - System.currentTimeMillis()).coerceIn(30L, 1000L)
+                Bike.outbox.poll(wait, java.util.concurrent.TimeUnit.MILLISECONDS)?.let { cmd ->
+                    send(cmd)
+                    if (!cmd.startsWith("AT+MAPS")) Bike.log("-> " + cmd.trim())
+                }
             } catch (_: InterruptedException) {
                 break
             } catch (e: Exception) {
@@ -331,9 +428,11 @@ class MidService : Service() {
             }
         }
         Bike.recorder.finish(System.currentTimeMillis())?.let { rideFinished(it, s) }
+        saveState(s)
+        holdWakeLock(false)
         link?.close(); link = null
         Bike.connected = false
-        setStatus("Stopped")
+        if (!Bike.status.startsWith("Bike off")) setStatus("Stopped")
     }
 
     private var lastGear: String? = null

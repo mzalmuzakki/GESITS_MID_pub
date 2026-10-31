@@ -233,13 +233,16 @@ object ScreenRenderer {
     }
 
     /** JPEG -> base64, lowering quality until it fits the MID's 7000-char limit. Null if it never fits. */
+    /** Last JPEG quality that fitted; the next search starts just above it (usually 1-2 encodes). */
+    @Volatile private var lastQuality = 85
+
     fun toMapsBase64(bmp: Bitmap, maxChars: Int = Mid.MAPS_MAX_CHARS): String? {
-        var q = 85
+        var q = minOf(90, lastQuality + 5)
         while (q >= 5) {
             val out = ByteArrayOutputStream()
             bmp.compress(Bitmap.CompressFormat.JPEG, q, out)
             val b64 = Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP)
-            if (b64.length <= maxChars) return b64
+            if (b64.length <= maxChars) { lastQuality = q; return b64 }
             q -= if (q > 30) 5 else 3
         }
         return null

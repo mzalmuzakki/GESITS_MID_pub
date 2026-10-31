@@ -81,6 +81,16 @@ class MainActivity : Activity() {
         Bike.loadTrip(settings)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         setContentView(buildUi())
+        if (intent?.getBooleanExtra("demo", false) == true) {
+            Demo.load(this)
+            Bike.lastFrame = synchronized(Bike.trip) { ScreenRenderer.render(Bike.telemetry, Bike.rangeKm(), settings.margins) }
+            when (intent.getStringExtra("open")) {
+                "stats" -> startActivity(Intent(this, StatsActivity::class.java))
+                "diagnosis" -> startActivity(Intent(this, DiagnosisActivity::class.java))
+                "speedo" -> startActivity(Intent(this, SpeedoActivity::class.java))
+            }
+            return
+        }
         askPermissions()
     }
 
