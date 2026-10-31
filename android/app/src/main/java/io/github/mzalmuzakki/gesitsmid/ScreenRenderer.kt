@@ -35,7 +35,7 @@ object ScreenRenderer {
     private fun tempColour(v: Float?, warn: Float, crit: Float) =
         if (v == null) MUTED else if (v >= crit) RED else if (v >= warn) AMBER else TEXT
 
-    fun render(t: Telemetry, kmPerPercent: Float): Bitmap {
+    fun render(t: Telemetry, rangeKm: Float?): Bitmap {
         val w = Mid.FRAME_W.toFloat(); val h = Mid.FRAME_H.toFloat()
         val bmp = Bitmap.createBitmap(Mid.FRAME_W, Mid.FRAME_H, Bitmap.Config.ARGB_8888)
         val c = Canvas(bmp)
@@ -67,7 +67,7 @@ object ScreenRenderer {
         rr(12f, 96f, 162f, 112f, PANEL)
         if (soc != null && soc > 0) rr(12f, 96f, 12f + 150f * soc.coerceIn(0f, 100f) / 100f, 112f,
             if (soc <= 20) RED else if (soc <= 35) AMBER else GREEN)
-        c.drawText("~${fmt(t.rangeKm(kmPerPercent))} km range", 12f, 134f, small)
+        c.drawText("~${fmt(rangeKm)} km range", 12f, 134f, small)
 
         // power
         box.color = PANEL; box.style = Paint.Style.FILL

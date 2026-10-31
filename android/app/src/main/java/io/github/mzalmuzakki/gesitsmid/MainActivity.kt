@@ -44,6 +44,7 @@ class MainActivity : Activity() {
     private lateinit var frameInfo: TextView
     private lateinit var preview: ImageView
     private lateinit var logView: TextView
+    private lateinit var rangeInfo: TextView
     private val pickPicture = 42
 
     private val tick = object : Runnable {
@@ -53,6 +54,7 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         settings = Settings(this)
+        Bike.loadRange(settings)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         setContentView(buildUi())
         askPermissions()
@@ -221,22 +223,43 @@ class MainActivity : Activity() {
 
         header(root, "Options")
         root.addView(CheckBox(this).apply {
-            text = "Show range on MID (AT+TRIP)"; isChecked = settings.sendRange; setTextColor(Color.WHITE)
-            setOnCheckedChangeListener { _, b -> settings.sendRange = b }
-        })
-        root.addView(CheckBox(this).apply {
-            text = "Set MID clock from phone"; isChecked = settings.syncTime; setTextColor(Color.WHITE)
+            text = "Set MID clock from phone (on connect + every minute)"; isChecked = settings.syncTime; setTextColor(Color.WHITE)
             setOnCheckedChangeListener { _, b -> settings.syncTime = b }
+        })
+
+        header(root, "Adaptive range")
+        root.addView(TextView(this).apply {
+            text = "Learns your real km per 1% battery from the odometer while you ride (last ~60% of battery " +
+                "used) and shows battery % x that on the MID's range."
+            setTextColor(Color.GRAY)
+        })
+        rangeInfo = TextView(this).apply { setTextColor(Color.WHITE); setPadding(0, dp(6), 0, dp(6)) }
+        root.addView(rangeInfo)
+        root.addView(CheckBox(this).apply {
+            text = "Show adaptive range on MID (AT+TRIP)"; isChecked = settings.sendRange; setTextColor(Color.WHITE)
+            setOnCheckedChangeListener { _, b -> settings.sendRange = b }
         })
         val kmpp = EditText(this).apply {
             setText(String.format(Locale.US, "%.2f", settings.kmPerPercent)); setTextColor(Color.WHITE)
             inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
         }
-        root.addView(TextView(this).apply { text = "Range estimate: km per 1% battery"; setTextColor(Color.GRAY) })
+        root.addView(TextView(this).apply { text = "Starting value until enough is learned: km per 1% battery"; setTextColor(Color.GRAY) })
         root.addView(kmpp)
-        button(root, "Save km per %") {
-            kmpp.text.toString().toFloatOrNull()?.let { settings.kmPerPercent = it; toast("Saved") }
+        val rangeRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        button(rangeRow, "Save starting value") {
+            kmpp.text.toString().toFloatOrNull()?.takeIf { it > 0f }?.let {
+                settings.kmPerPercent = it; synchronized(Bike.range) { Bike.range.priorKmPerPercent = it }; toast("Saved")
+            }
         }
+        button(rangeRow, "Forget learned range") {
+            AlertDialog.Builder(this).setTitle("Forget learned range?")
+                .setMessage("Starts learning again from the starting value. Useful after a battery change.")
+                .setPositiveButton("Forget") { _, _ ->
+                    synchronized(Bike.range) { Bike.range.reset(); settings.rangeState = Bike.range.save() }
+                    toast("Range learning reset")
+                }.setNegativeButton("Cancel", null).show()
+        }
+        root.addView(rangeRow)
 
         header(root, "Log")
         logView = TextView(this).apply { typeface = Typeface.MONOSPACE; setTextColor(Color.GRAY); textSize = 11f }
@@ -262,12 +285,14 @@ class MainActivity : Activity() {
             appendLine("Battery   ${v("SOC", " %")}   health ${v("SOH", " %")}")
             appendLine("Power     $p   (${v("VBAT", " V")}, ${v("IBAT", " A")})")
             appendLine("Mode      ${t.mode ?: "--"}   gear ${t.gear ?: "--"}")
+            appendLine("Range     ${Bike.rangeKm()?.let { String.format(Locale.US, "%.0f km", it) } ?: "--"}")
             appendLine("ODO       ${v("ODO", " km")}")
             appendLine("Temp      bat ${v("TBAT")}  motor ${v("TMOT")}  inv ${v("TINV")} °C")
             append("Errors    ${if (t.errorMask == null) "--" else t.errors.ifEmpty { listOf("none") }.joinToString()}")
         }
         Bike.lastFrame?.let { preview.setImageBitmap(it) }
         frameInfo.text = Bike.lastFrameInfo
+        rangeInfo.text = synchronized(Bike.range) { Bike.range.describe() }
         logView.text = synchronized(Bike.log) { Bike.log.toList().takeLast(15).joinToString("\n") }
     }
 }

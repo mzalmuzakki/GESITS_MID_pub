@@ -49,4 +49,8 @@ android {
     }
 }
 
-// No dependencies on purpose: only the Android framework and the Kotlin standard library.
+// No app dependencies on purpose: only the Android framework and the Kotlin standard library.
+// (Test-only libraries below are used by unit tests on the build machine and are NOT in the APK.)
+dependencies {
+    testImplementation("org.jetbrains.kotlin:kotlin-test-junit:1.9.24")
+}

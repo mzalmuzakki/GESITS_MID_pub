@@ -50,7 +50,7 @@ jobs:
       - name: Build signed APK
         env:
           GESITS_KEYSTORE_PASSWORD: ${{ secrets.GESITS_KEYSTORE_PASSWORD }}
-        run: gradle -p android assembleRelease --no-daemon --stacktrace
+        run: gradle -p android testReleaseUnitTest assembleRelease --no-daemon --stacktrace
 
       - name: Name and checksum
         id: apk

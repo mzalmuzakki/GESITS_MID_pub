@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import sys
 import time
+from pathlib import Path
 
 from . import mapimage, protocol
 from .client import GesitsClient
@@ -129,15 +130,30 @@ def cmd_screen(args) -> None:
         img.save(args.preview or "screen_preview.png")
         print(f"preview -> {args.preview or 'screen_preview.png'} ({len(b64)} base64 chars at quality {q})")
         return
+    from .rangeest import RangeEstimator
+
+    est = RangeEstimator(prior_km_per_percent=args.km_per_percent)
+    est.load(args.range_file)
+    est.prior = args.km_per_percent
     with _connect(args) as c:
+        last_minute = None
         while True:
             t0 = time.monotonic()
+            now = time.localtime()
+            if not args.no_clock and (now.tm_hour, now.tm_min) != last_minute:
+                c.sync_time()                       # on connect and whenever the minute changes
+                last_minute = (now.tm_hour, now.tm_min)
             tel = c.poll(SCREEN_KEYS)
-            img = screen.render(tel)
+            odo, soc = tel.get_float("ODO"), tel.get_float("SOC")
+            if odo is not None and soc is not None and est.update(odo, soc):
+                print("range learned:", est.describe(), flush=True)
+            est.save(args.range_file)
+            range_km = est.range_km(soc) if soc is not None else None
+            img = screen.render(tel, range_km=range_km)
             b64, q, _ = mapimage.jpeg_to_base64(img, max_chars=args.max_chars)
             c.show_jpeg(b64)
-            if tel.range_km is not None:
-                c.show_range(tel.range_km)
+            if range_km is not None:
+                c.show_range(range_km)
             if args.text:
                 c.show_text(args.text)
             if args.preview:
@@ -213,6 +229,10 @@ def main(argv=None) -> None:
     sp.add_argument("--text", default="", help="also show this text line (AT+NAV)")
     sp.add_argument("--preview", help="save the last rendered frame here")
     sp.add_argument("--once", action="store_true")
+    sp.add_argument("--km-per-percent", type=float, default=1.0, help="starting value for adaptive range")
+    sp.add_argument("--range-file", default=str(Path.home() / ".gesits_range.json"),
+                    help="where the learned range is kept")
+    sp.add_argument("--no-clock", action="store_true", help="don't set the MID clock")
 
     add("map-off", cmd_map_off, "legacy: AT+MAPON=\"0\" + AT+MAPEND")
 

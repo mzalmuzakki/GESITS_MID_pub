@@ -62,8 +62,9 @@ def _fmt(v: Optional[float], spec: str = ".0f", none: str = "--") -> str:
     return none if v is None else format(v, spec)
 
 
-def render(tel: Telemetry, now: Optional[time.struct_time] = None):
-    """Return a PIL image (350x220) of the custom screen for the given telemetry."""
+def render(tel: Telemetry, now: Optional[time.struct_time] = None, range_km: Optional[float] = None):
+    """Return a PIL image (350x220) of the custom screen. range_km: adaptive range
+    (gesits.rangeest); defaults to the simple 1 km per % estimate."""
     from PIL import Image, ImageDraw
 
     now = now or time.localtime()
@@ -90,7 +91,8 @@ def render(tel: Telemetry, now: Optional[time.struct_time] = None):
     d.rounded_rectangle((12, 96, 162, 112), radius=4, fill=PANEL)
     if soc:
         d.rounded_rectangle((12, 96, 12 + 150 * max(0.0, min(soc, 100)) / 100, 112), radius=4, fill=socc)
-    d.text((12, 120), f"~{_fmt(tel.range_km)} km range", font=f_small, fill=MUTED)
+    rng = range_km if range_km is not None else tel.range_km
+    d.text((12, 120), f"~{_fmt(rng)} km range", font=f_small, fill=MUTED)
 
     # Power (right)
     d.line((175, 44, 175, 136), fill=PANEL, width=2)

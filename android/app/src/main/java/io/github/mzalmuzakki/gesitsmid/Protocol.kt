@@ -71,7 +71,6 @@ class Telemetry {
         val m = errorMask ?: return emptyList()
         return (0 until 16).filter { ((m shr it) and 1) == 1 }.map { Mid.ERROR_BITS[it] ?: "Unknown error bit $it" }
     }
-    fun rangeKm(kmPerPercent: Float): Float? = f("SOC")?.let { it * kmPerPercent }
 }
 
 /** Joins raw bytes into "KEY=value" lines. Not thread-safe: use from one thread. */

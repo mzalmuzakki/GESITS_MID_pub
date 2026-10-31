@@ -27,6 +27,15 @@ object Bike {
     /** One-off commands from the UI (text, picture...), sent by the service thread. */
     val outbox = LinkedBlockingQueue<String>()
     val log = ArrayDeque<String>()
+    /** Adaptive range learner; guard access with synchronized(range). */
+    val range = RangeEstimator()
+    @Volatile var rangeLoaded = false
+
+    fun loadRange(s: Settings) = synchronized(range) {
+        if (!rangeLoaded) { range.load(s.rangeState); rangeLoaded = true }
+        range.priorKmPerPercent = s.kmPerPercent
+    }
+    fun rangeKm(): Float? = Bike.telemetry.f("SOC")?.let { soc -> synchronized(range) { range.rangeKm(soc) } }
 
     fun log(msg: String) = synchronized(log) {
         log.addLast(msg)
@@ -45,6 +54,7 @@ class Settings(ctx: Context) {
     var syncTime: Boolean get() = p.getBoolean("time", true); set(v) = p.edit().putBoolean("time", v).apply()
     var navText: String get() = p.getString("nav", "")!!; set(v) = p.edit().putString("nav", v).apply()
     var kmPerPercent: Float get() = p.getFloat("kmpp", 1.0f); set(v) = p.edit().putFloat("kmpp", v).apply()
+    var rangeState: String? get() = p.getString("rangeState", null); set(v) = p.edit().putString("rangeState", v).apply()
     var frameSeconds: Int get() = p.getInt("frameSec", 3); set(v) = p.edit().putInt("frameSec", v).apply()
 }
 
@@ -133,7 +143,7 @@ class MidService : Service() {
 
     private fun picturePayload(s: Settings): String? = when (s.screenMode) {
         "dashboard" -> {
-            val bmp = ScreenRenderer.render(Bike.telemetry, s.kmPerPercent)
+            val bmp = ScreenRenderer.render(Bike.telemetry, Bike.rangeKm())
             Bike.lastFrame = bmp
             ScreenRenderer.toMapsBase64(bmp)
         }
@@ -146,6 +156,8 @@ class MidService : Service() {
         var keyIdx = 0
         var navIdx = 0
         var lastPoll = 0L; var lastFrame = 0L; var lastTrip = 0L; var lastNav = 0L; var lastTime = 0L
+        var lastMinute = -1; var lastLearn = 0L; var lastSave = 0L
+        Bike.loadRange(s)
         while (Bike.running) {
             try {
                 if (link?.isOpen != true) {
@@ -153,7 +165,8 @@ class MidService : Service() {
                     link = openLink(s)
                     if (link == null) { Thread.sleep(5000); continue }
                     lastFrame = System.currentTimeMillis() - s.frameSeconds * 1000L + 1500   // first frame after some data
-                    lastTime = 0L
+                    lastTime = 0L; lastMinute = -1   // set the MID clock right after connecting
+                    Bike.telemetry.raw.clear()         // never pair old values with new ones (range learning)
                 }
                 val now = System.currentTimeMillis()
 
@@ -164,13 +177,34 @@ class MidService : Service() {
                     keyIdx = (keyIdx + 1) % Mid.POLL_KEYS.size
                     lastPoll = now
                 }
-                if (s.syncTime && now - lastTime >= 60_000) {
+                // Clock: on connect, whenever the phone's minute changes, and every 30 s as a safety net.
+                if (s.syncTime) {
                     val c = Calendar.getInstance()
-                    send(Mid.time(c.get(Calendar.HOUR_OF_DAY), c.get(Calendar.MINUTE)))
-                    lastTime = now
+                    val minute = c.get(Calendar.HOUR_OF_DAY) * 60 + c.get(Calendar.MINUTE)
+                    if (minute != lastMinute || now - lastTime >= 30_000) {
+                        send(Mid.time(c.get(Calendar.HOUR_OF_DAY), c.get(Calendar.MINUTE)))
+                        lastMinute = minute; lastTime = now
+                    }
+                }
+                // Adaptive range: learn from ODO vs SOC once per second, save when something was learned.
+                if (now - lastLearn >= 1000) {
+                    val odo = Bike.telemetry.f("ODO"); val soc = Bike.telemetry.f("SOC")
+                    if (odo != null && soc != null) {
+                        val learned = synchronized(Bike.range) {
+                            Bike.range.priorKmPerPercent = s.kmPerPercent
+                            Bike.range.update(odo, soc, now)
+                        }
+                        // also save regularly, so a quick reconnect continues the same segment
+                        if (learned || now - lastSave >= 10_000) {
+                            s.rangeState = synchronized(Bike.range) { Bike.range.save() }
+                            lastSave = now
+                        }
+                        if (learned) Bike.log("Range learned: " + synchronized(Bike.range) { Bike.range.describe() })
+                    }
+                    lastLearn = now
                 }
                 if (s.sendRange && now - lastTrip >= 3000) {
-                    Bike.telemetry.rangeKm(s.kmPerPercent)?.let { send(Mid.trip(it)) }
+                    Bike.rangeKm()?.let { send(Mid.trip(it)) }
                     lastTrip = now
                 }
                 val parts = Mid.splitNav(s.navText)
