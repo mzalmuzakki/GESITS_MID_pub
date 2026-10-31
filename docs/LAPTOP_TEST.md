@@ -4,12 +4,16 @@ Everything here only **reads** from the bike, except step 5, which writes the cl
 Park with the stand down and the ignition ON. **Close the Gesits apps on your phone first**: the MID may accept only one connection.
 
 ## 1. Install (once)
-1. Install Python 3.9 or newer (Windows: python.org, and tick "Add python to PATH").
-2. Download this repo: on GitHub, **Code → Download ZIP**, then unzip it. Open a terminal in the unzipped folder.
-3. Install the helpers:
-   ```
-   pip install pillow pyserial bleak
-   ```
+**Windows (easiest):**
+1. On GitHub, **Code → Download ZIP**, then unzip it (e.g. to `Downloads\GESITS_MID_pub-main`).
+2. In that folder, **double-click `setup_windows.bat`**. It installs Python if needed (via winget), installs
+   the packages, and runs a quick test against a built-in fake bike. If it says Python was just installed,
+   close the window and double-click it once more.
+
+**Linux / macOS / manual:** install Python 3.9+, then in the unzipped folder run
+```
+pip install pillow pyserial bleak
+```
 
 ## 2. Pair the bike
 Ignition ON, then press the **Bluetooth button** on the left handlebar.
