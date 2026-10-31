@@ -5,6 +5,10 @@ Versions are **v\<major\>.\<xx\>.\<yy\>** (see `android/version.properties`):
 * **xx**: feature milestone (new or changed things you notice); resets yy
 * **yy**: fixes and polish only
 
+## v0.11.00
+Auto-connect: the app connects to the saved bike as soon as it is opened (turns Bluetooth on via
+Android's prompt if needed). Switch it off in Tools → Keep connected.
+
 ## v0.10.00
 CAKRA Labs name and logo (top bar and Tools → About). New UI with Home / MID / Trips / Tools tabs, guided setup, cards and switches. Security fixes:
 demo mode can't be triggered by other apps, parking coordinates aren't logged, "Delete all my data".

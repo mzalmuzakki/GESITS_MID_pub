@@ -46,6 +46,7 @@ class MainActivity : Activity() {
     private var current = "home"
     private var tripsPage: TripsPage? = null
     private val pickPicture = 42
+    private val enableBt = 43
 
     private val tick = object : Runnable { override fun run() { refresh(); ui.postDelayed(this, 500) } }
 
@@ -69,7 +70,22 @@ class MainActivity : Activity() {
                 else -> show(o)
             }
             if (current != intent.getStringExtra("open")) show("home")
-        } else show("home")
+        } else {
+            show("home")
+            if (savedInstanceState == null) autoConnect()
+        }
+    }
+
+    /**
+     * Connect to the saved bike when the app opens. Never asks for permissions by itself (that happens when
+     * you tap Connect the first time); if Bluetooth is off, Android's own "turn on Bluetooth?" prompt is shown.
+     */
+    private fun autoConnect() {
+        if (!settings.autoConnect || Bike.running || settings.address == null || !hasPermissions()) return
+        val adapter = getSystemService(BluetoothManager::class.java)?.adapter ?: return
+        if (adapter.isEnabled) { MidService.start(this); return }
+        try { startActivityForResult(Intent(android.bluetooth.BluetoothAdapter.ACTION_REQUEST_ENABLE), enableBt) }
+        catch (_: Exception) { toast("Turn Bluetooth on to connect to the bike") }
     }
 
     override fun onResume() { super.onResume(); ui.post(tick) }
@@ -432,6 +448,9 @@ class MainActivity : Activity() {
         }
 
         val bg = Ui.card(this, col, "KEEP CONNECTED")
+        Ui.switchRow(this, bg, "Connect automatically", "As soon as the app is opened (once a bike is chosen)", settings.autoConnect) {
+            settings.autoConnect = it
+        }
         bgInfo = Ui.text(this, bg, "", 14f)
         Ui.text(this, bg, "Some phones (Xiaomi, OPPO, vivo, Realme, Samsung) close Bluetooth apps in the background. " +
             "Allow this app to run without battery restrictions; on Xiaomi/OPPO/vivo also turn on Autostart in App info.", 12f, Ui.MUTED)
@@ -534,6 +553,7 @@ class MainActivity : Activity() {
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == enableBt) { if (resultCode == RESULT_OK && !Bike.running) MidService.start(this); return }
         val uri = data?.data ?: return
         if (resultCode != RESULT_OK) return
         when (requestCode) {
