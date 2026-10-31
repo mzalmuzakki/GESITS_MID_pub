@@ -38,7 +38,7 @@ object Bike {
     fun rangeKm(): Float? = Bike.telemetry.f("SOC")?.let { soc -> synchronized(range) { range.rangeKm(soc) } }
 
     fun log(msg: String) = synchronized(log) {
-        log.addLast(msg)
+        log.addLast(java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US).format(java.util.Date()) + " " + msg)
         while (log.size > 60) log.removeFirst()
     }
 }
@@ -48,13 +48,16 @@ class Settings(ctx: Context) {
     var linkType: String get() = p.getString("link", "classic")!!; set(v) = p.edit().putString("link", v).apply()
     var address: String? get() = p.getString("address", null); set(v) = p.edit().putString("address", v).apply()
     var deviceName: String? get() = p.getString("deviceName", null); set(v) = p.edit().putString("deviceName", v).apply()
-    /** "dashboard", "picture" or "off" */
+    /** "dashboard", "picture", "grid" (calibration) or "off" */
     var screenMode: String get() = p.getString("screen", "dashboard")!!; set(v) = p.edit().putString("screen", v).apply()
     var sendRange: Boolean get() = p.getBoolean("range", true); set(v) = p.edit().putBoolean("range", v).apply()
     var syncTime: Boolean get() = p.getBoolean("time", true); set(v) = p.edit().putBoolean("time", v).apply()
     var navText: String get() = p.getString("nav", "")!!; set(v) = p.edit().putString("nav", v).apply()
     var kmPerPercent: Float get() = p.getFloat("kmpp", 1.0f); set(v) = p.edit().putFloat("kmpp", v).apply()
     var rangeState: String? get() = p.getString("rangeState", null); set(v) = p.edit().putString("rangeState", v).apply()
+    var margins: ScreenRenderer.Margins
+        get() = ScreenRenderer.Margins(p.getInt("mL", 0), p.getInt("mT", 0), p.getInt("mR", 0), p.getInt("mB", 56))
+        set(v) = p.edit().putInt("mL", v.left).putInt("mT", v.top).putInt("mR", v.right).putInt("mB", v.bottom).apply()
     var frameSeconds: Int get() = p.getInt("frameSec", 3); set(v) = p.edit().putInt("frameSec", v).apply()
 }
 
@@ -74,6 +77,18 @@ class MidService : Service() {
     }
 
     @Volatile private var worker: Thread? = null
+    private var wakeLock: android.os.PowerManager.WakeLock? = null
+
+    /** Keeps the CPU awake while connected, so the link survives screen-off and app switching. */
+    private fun holdWakeLock(on: Boolean) {
+        if (on && wakeLock == null) {
+            wakeLock = getSystemService(android.os.PowerManager::class.java)
+                .newWakeLock(android.os.PowerManager.PARTIAL_WAKE_LOCK, "gesitsmid:link").also { it.acquire() }
+        } else if (!on) {
+            wakeLock?.let { if (it.isHeld) it.release() }
+            wakeLock = null
+        }
+    }
     @Volatile private var link: MidLink? = null
     private val parser = LineParser()
     private var lastSend = 0L
@@ -85,11 +100,13 @@ class MidService : Service() {
             Bike.running = false
             worker?.interrupt()
             link?.close()
+            holdWakeLock(false)
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
             return START_NOT_STICKY
         }
         goForeground()
+        holdWakeLock(true)
         if (worker?.isAlive != true) {
             Bike.running = true
             worker = Thread({ runLoop() }, "mid-worker").also { it.start() }
@@ -143,10 +160,11 @@ class MidService : Service() {
 
     private fun picturePayload(s: Settings): String? = when (s.screenMode) {
         "dashboard" -> {
-            val bmp = ScreenRenderer.render(Bike.telemetry, Bike.rangeKm())
+            val bmp = ScreenRenderer.render(Bike.telemetry, Bike.rangeKm(), s.margins)
             Bike.lastFrame = bmp
             ScreenRenderer.toMapsBase64(bmp)
         }
+        "grid" -> ScreenRenderer.calibrationGrid().let { Bike.lastFrame = it; ScreenRenderer.toMapsBase64(it) }
         "picture" -> try { openFileInput("picture.b64").bufferedReader().readText() } catch (_: Exception) { null }
         else -> null
     }
@@ -163,7 +181,7 @@ class MidService : Service() {
                 if (link?.isOpen != true) {
                     link?.close()
                     link = openLink(s)
-                    if (link == null) { Thread.sleep(5000); continue }
+                    if (link == null) { Thread.sleep(2000); continue }
                     lastFrame = System.currentTimeMillis() - s.frameSeconds * 1000L + 1500   // first frame after some data
                     lastTime = 0L; lastMinute = -1   // set the MID clock right after connecting
                     Bike.telemetry.raw.clear()         // never pair old values with new ones (range learning)
@@ -203,7 +221,8 @@ class MidService : Service() {
                     }
                     lastLearn = now
                 }
-                if (s.sendRange && now - lastTrip >= 3000) {
+                // Every second: the MID falls back to its own range figure if we go quiet.
+                if (s.sendRange && now - lastTrip >= 1000) {
                     Bike.rangeKm()?.let { send(Mid.trip(it)) }
                     lastTrip = now
                 }
@@ -218,6 +237,7 @@ class MidService : Service() {
                     val b64 = picturePayload(s)
                     if (b64 != null) {
                         send(Mid.maps(b64))
+                        if (s.sendRange) Bike.rangeKm()?.let { send(Mid.trip(it)) }   // right after a (slow) frame
                         Bike.lastFrameInfo = "Picture sent: ${b64.length} chars in ${System.currentTimeMillis() - t0} ms"
                     } else if (s.screenMode == "dashboard") {
                         Bike.lastFrameInfo = "Dashboard picture too large"
@@ -240,6 +260,7 @@ class MidService : Service() {
     }
 
     override fun onDestroy() {
+        holdWakeLock(false)
         Bike.running = false
         worker?.interrupt()
         link?.close()

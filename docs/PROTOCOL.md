@@ -110,6 +110,15 @@ it as decimal unless it starts with `0x`, which contradicts its own `0800` = bit
 * A instead sent a 164 × 88, 4-colour, 2-bit-packed hex bitmap (`gesits/mapimage.py`, `--legacy`). That
   is probably for old MID firmware. Use JPEG.
 
+### Seen on a real G1 (photo, 350×220 JPEG via the community-built app in this repo)
+* The picture's top-left sits just inside the MID's red map frame, about 55 px below the frame's top edge.
+  The space above is likely kept for the `AT+NAV` text line.
+* Roughly the top **164 px** of a 220 px picture show inside the frame. Below that, the MID's frame line,
+  range circle and battery gauge are drawn over the picture. The app's dashboard keeps a 56 px bottom
+  margin by default; the calibration grid (app → "Calibration grid") measures this exactly.
+* `AT+TRIP` changes the MID's "Range" figure, but the MID goes back to its own value when updates stop,
+  so the app re-sends it every second.
+
 ## 4. Other devices B connects to (not the MID)
 * **JK-BMS** (battery management system) over BLE: service `FFE0`, notify `FFE1`, write `FFF2`.
 * **ESP32 CAN sniffer** over BLE Nordic UART (`6E400001/2/3-…`). Adds `CRZ` (cruise on/off) and `REM` (brake),

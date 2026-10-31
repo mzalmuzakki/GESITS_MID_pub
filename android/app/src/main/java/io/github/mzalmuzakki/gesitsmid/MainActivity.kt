@@ -45,6 +45,14 @@ class MainActivity : Activity() {
     private lateinit var preview: ImageView
     private lateinit var logView: TextView
     private lateinit var rangeInfo: TextView
+    private lateinit var bgInfo: TextView
+
+    private companion object {
+        val SCREEN_MODES = listOf(
+            "dashboard" to "My dashboard (live data)", "picture" to "My picture",
+            "grid" to "Calibration grid", "off" to "Off (don't send pictures)",
+        )
+    }
     private val pickPicture = 42
 
     private val tick = object : Runnable {
@@ -198,7 +206,7 @@ class MainActivity : Activity() {
 
         header(root, "MID screen (map area)")
         modeGroup = RadioGroup(this)
-        listOf("dashboard" to "My dashboard (live data)", "picture" to "My picture", "off" to "Off (don't send pictures)").forEachIndexed { i, (key, label) ->
+        SCREEN_MODES.forEachIndexed { i, (key, label) ->
             modeGroup.addView(RadioButton(this).apply { id = 100 + i; text = label; tag = key; setTextColor(Color.WHITE) })
         }
         modeGroup.setOnCheckedChangeListener { g, id -> settings.screenMode = g.findViewById<View>(id).tag as String }
@@ -210,6 +218,33 @@ class MainActivity : Activity() {
         root.addView(preview)
         frameInfo = TextView(this).apply { setTextColor(Color.GRAY) }
         root.addView(frameInfo)
+
+        header(root, "Dashboard position on the MID")
+        root.addView(TextView(this).apply {
+            text = "The MID's own widgets cover part of the picture. These margins (in pixels of the " +
+                "350x220 picture) keep the dashboard in the free area. Send the calibration grid, " +
+                "take a photo, and read off which numbers are still visible."
+            setTextColor(Color.GRAY)
+        })
+        val m = settings.margins
+        val grid = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        fun num(label: String, v: Int): EditText {
+            val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+            col.addView(TextView(this).apply { text = label; setTextColor(Color.GRAY) })
+            val e = EditText(this).apply { setText(v.toString()); setTextColor(Color.WHITE); inputType = InputType.TYPE_CLASS_NUMBER; minEms = 3 }
+            col.addView(e); grid.addView(col, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            return e
+        }
+        val eL = num("Left", m.left); val eT = num("Top", m.top); val eR = num("Right", m.right); val eB = num("Bottom", m.bottom)
+        root.addView(grid)
+        val posRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        button(posRow, "Save position") {
+            fun v(e: EditText, max: Int) = (e.text.toString().toIntOrNull() ?: 0).coerceIn(0, max)
+            settings.margins = ScreenRenderer.Margins(v(eL, 300), v(eT, 180), v(eR, 300), v(eB, 180))
+            settings.screenMode = "dashboard"; recreateUiState(); toast("Saved - shown on the next picture")
+        }
+        button(posRow, "Send calibration grid") { settings.screenMode = "grid"; recreateUiState(); toast("The grid goes to the MID within a few seconds") }
+        root.addView(posRow)
 
         header(root, "MID text line (20 characters per step)")
         val nav = EditText(this).apply {
@@ -261,6 +296,28 @@ class MainActivity : Activity() {
         }
         root.addView(rangeRow)
 
+        header(root, "Keep connected in the background")
+        bgInfo = TextView(this).apply { setTextColor(Color.WHITE) }
+        root.addView(bgInfo)
+        root.addView(TextView(this).apply {
+            text = "Some phones (Xiaomi, OPPO, vivo, Realme, Samsung...) close Bluetooth apps in the " +
+                "background. Allow this app to run without battery restrictions. On Xiaomi/OPPO/vivo also " +
+                "turn on Autostart in App info and lock the app in the recent-apps list."
+            setTextColor(Color.GRAY)
+        })
+        val bgRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        button(bgRow, "Allow background") {
+            try {
+                startActivity(Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:$packageName")))
+            } catch (_: Exception) {
+                startActivity(Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+            }
+        }
+        button(bgRow, "App info") {
+            startActivity(Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName")))
+        }
+        root.addView(bgRow)
+
         header(root, "Log")
         logView = TextView(this).apply { typeface = Typeface.MONOSPACE; setTextColor(Color.GRAY); textSize = 11f }
         root.addView(logView)
@@ -270,7 +327,7 @@ class MainActivity : Activity() {
     }
 
     private fun recreateUiState() {
-        val idx = listOf("dashboard", "picture", "off").indexOf(settings.screenMode).coerceAtLeast(0)
+        val idx = SCREEN_MODES.map { it.first }.indexOf(settings.screenMode).coerceAtLeast(0)
         modeGroup.check(100 + idx)
     }
 
@@ -293,6 +350,9 @@ class MainActivity : Activity() {
         Bike.lastFrame?.let { preview.setImageBitmap(it) }
         frameInfo.text = Bike.lastFrameInfo
         rangeInfo.text = synchronized(Bike.range) { Bike.range.describe() }
-        logView.text = synchronized(Bike.log) { Bike.log.toList().takeLast(15).joinToString("\n") }
+        val pm = getSystemService(android.os.PowerManager::class.java)
+        bgInfo.text = if (pm.isIgnoringBatteryOptimizations(packageName)) "Battery restriction: off (good)"
+                      else "Battery restriction: ON - the phone may cut the connection in the background"
+        logView.text = synchronized(Bike.log) { Bike.log.toList().takeLast(25).joinToString("\n") }
     }
 }
