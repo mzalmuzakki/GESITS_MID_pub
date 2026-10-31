@@ -23,6 +23,8 @@ read live data, set the clock, and put your own text and pictures on the stock M
 > not been run on a bike yet. Test while parked. Don't fiddle with the MID while riding.
 > The odometer-write command (`AT+ODO=`) is documented but deliberately not exposed.
 
+> **Testing with a laptop?** Follow [docs/LAPTOP_TEST.md](docs/LAPTOP_TEST.md) (about 15 minutes, read-only first).
+
 ## Quick start
 
 Needs Python 3.9+. Pillow is required for pictures (`pip install pillow`) and pyserial for

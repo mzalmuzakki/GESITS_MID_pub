@@ -164,6 +164,48 @@ def cmd_screen(args) -> None:
             time.sleep(max(0.0, args.interval - (time.monotonic() - t0)))
 
 
+PROBE_KEYS = ["VER", "SOC2", "NUMBAT", "FWD", "CBAT", "TRIP", "TIME", "NAV", "ARROW", "MAPON", "RPM", "PWR",
+              "SN", "ID", "NAME", "MODEL", "VIN", "DATE", "BT", "MAC", "LIGHT", "BRIGHT", "THEME", "LANG",
+              "UNIT", "MENU", "PAGE", "SCREEN", "LAYOUT", "LOGO", "RANGE", "AVG", "KM", "TEMP", "CAP", "CYCLE",
+              "CHG", "HELP", "LIST", "ALL"]
+
+
+def cmd_selftest(args) -> None:
+    """Read-only check of the connection and every known/guessed query. Writes a report file."""
+    lines = []
+
+    def out(msg=""):
+        print(msg, flush=True)
+        lines.append(msg)
+
+    out(f"gesits selftest  {time.strftime('%Y-%m-%d %H:%M:%S')}  uri={args.uri}")
+    t0 = time.monotonic()
+    with _connect(args) as c:
+        out(f"connected in {time.monotonic() - t0:.1f} s")
+        out("\n== Known values ==")
+        for key in ["VER"] + protocol.ALL_KEYS:
+            t1 = time.monotonic()
+            v = c.request(key)
+            ms = (time.monotonic() - t1) * 1000
+            out(f"{key:<7}{(v if v is not None else '(no reply)'):>12}  {ms:5.0f} ms   {protocol.KEY_DESCRIPTIONS.get(key, '')}")
+        out("\n== Probe (read-only AT+NAME? queries; anything that answers is interesting) ==")
+        for key in PROBE_KEYS:
+            c.send(protocol.query(key))
+            end = time.monotonic() + args.reply_timeout
+            got = []
+            while time.monotonic() < end:
+                raw = c.t.read(0.1)
+                if raw:
+                    got.append(raw.decode("ascii", "replace").strip())
+            out(f"{key:<7} -> {' | '.join(g for g in got if g) or '(nothing)'}")
+        out("\n== Summary ==")
+        tel = c.telemetry
+        out(f"mode={tel.drive_mode} gear={tel.park_state} power={tel.power_w} W errors={tel.errors or 'none'}")
+    report = Path(args.report)
+    report.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    print(f"\nReport saved to {report.resolve()} - send this file.")
+
+
 def cmd_map_off(args) -> None:
     with _connect(args) as c:
         c.hide_map()
@@ -233,6 +275,9 @@ def main(argv=None) -> None:
     sp.add_argument("--range-file", default=str(Path.home() / ".gesits_range.json"),
                     help="where the learned range is kept")
     sp.add_argument("--no-clock", action="store_true", help="don't set the MID clock")
+
+    sp = add("selftest", cmd_selftest, "read-only check of the bike connection; writes a report")
+    sp.add_argument("--report", default="gesits_report.txt")
 
     add("map-off", cmd_map_off, "legacy: AT+MAPON=\"0\" + AT+MAPEND")
 
