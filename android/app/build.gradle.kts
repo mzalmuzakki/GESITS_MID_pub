@@ -3,6 +3,12 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
+// Version lives in android/version.properties (one place to edit per release).
+val ver = java.util.Properties().apply { rootProject.file("version.properties").inputStream().use { load(it) } }
+val vMajor = ver.getProperty("major").trim().toInt()
+val vXx = ver.getProperty("xx").trim().toInt()
+val vYy = ver.getProperty("yy").trim().toInt()
+
 android {
     namespace = "io.github.mzalmuzakki.gesitsmid"
     compileSdk = 34
@@ -11,8 +17,8 @@ android {
         applicationId = "io.github.mzalmuzakki.gesitsmid"
         minSdk = 26
         targetSdk = 34
-        versionCode = (System.getenv("GITHUB_RUN_NUMBER") ?: "1").toInt()
-        versionName = "0.1." + (System.getenv("GITHUB_RUN_NUMBER") ?: "0")
+        versionCode = vMajor * 10000 + vXx * 100 + vYy
+        versionName = String.format("%d.%02d.%02d", vMajor, vXx, vYy)   // shown as v0.10.00
     }
 
     // Signing: if GESITS_KEYSTORE (path) and GESITS_KEYSTORE_PASSWORD are set (from GitHub

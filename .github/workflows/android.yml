@@ -57,7 +57,9 @@ jobs:
       - name: Name and checksum
         id: apk
         run: |
-          APK="GesitsMid-${{ github.run_number }}.apk"
+          V=$(awk -F= '/^major=/{m=$2}/^xx=/{x=$2}/^yy=/{y=$2}END{printf "v%d.%02d.%02d", m, x, y}' android/version.properties)
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          APK="GesitsMid-$V.apk"
           cp android/app/build/outputs/apk/release/app-release.apk "$APK"
           echo "file=$APK" >> "$GITHUB_OUTPUT"
           echo "sha=$(sha256sum "$APK" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
@@ -75,7 +77,7 @@ jobs:
           gh release delete android-latest --yes --cleanup-tag || true
           gh release create android-latest "${{ steps.apk.outputs.file }}" \
             --prerelease --target "${{ github.sha }}" \
-            --title "Gesits MID app - build ${{ github.run_number }}" \
+            --title "Gesits MID ${{ steps.apk.outputs.version }} (build ${{ github.run_number }})" \
             --notes "Built by GitHub Actions from commit ${{ github.sha }}.
           SHA-256: ${{ steps.apk.outputs.sha }}
           Permissions: Bluetooth, foreground service, notifications. No internet."

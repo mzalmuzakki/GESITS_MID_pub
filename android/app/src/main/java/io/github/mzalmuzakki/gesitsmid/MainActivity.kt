@@ -482,7 +482,7 @@ class MainActivity : Activity() {
                 .setPrimaryClip(android.content.ClipData.newPlainText("Gesits MID log", text))
             toast("Log copied")
         }
-        Ui.text(this, col, "Gesits MID · version " + try { packageManager.getPackageInfo(packageName, 0).versionName } catch (_: Exception) { "?" },
+        Ui.text(this, col, "Gesits MID v" + try { packageManager.getPackageInfo(packageName, 0).versionName } catch (_: Exception) { "?" },
             11f, Ui.MUTED).gravity = Gravity.CENTER
         return sv
     }
