@@ -2,3 +2,10 @@ __pycache__/
 *.pyc
 frames/
 *.apk
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+*.iml
+.idea/
+android/keystore/

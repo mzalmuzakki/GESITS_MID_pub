@@ -1,0 +1,41 @@
+# Gesits MID - Android app
+
+Your own small app for the Gesits G1 dashboard (MID). Every line is in this folder, and
+GitHub Actions builds it, so you know exactly what you install.
+
+## What it does
+* Connects to the bike over **Bluetooth Classic** (paired, the usual way) **or Bluetooth LE** (`GESITS`).
+* Shows live data: speed, battery, health, power/regen, voltage and current, mode, gear, odometer,
+  temperatures and errors.
+* Sends a picture to the MID map area every few seconds: **your own live dashboard** (same design as
+  `docs/img/custom_screen.png`) or **a picture you choose**.
+* Optionally sends a range figure, sets the MID clock, and shows your own text line (rotating, 20
+  characters per step).
+* Keeps running with the screen off, shown by a "Gesits MID" notification. Stop it with **Disconnect**.
+
+## Why it's "safe"
+| | This app | GESITS Dashboard (community) |
+|---|---|---|
+| Internet | **none** (no INTERNET permission) | yes |
+| Permissions | Bluetooth, notification, foreground service | + camera, microphone, screen capture, overlay, **install other apps**, storage, location |
+| Third-party libraries | **none** | Mapbox, BouncyCastle, Play Services, ... |
+| Writes odometer | **never** | yes (`AT+ODO=`) |
+| Source | this repo, built by GitHub Actions | closed APK |
+
+## Install
+1. On your phone, open the repo on GitHub → **Releases** → **android-latest** → download `GesitsMid-N.apk`.
+2. Open it and allow "install unknown apps" for your browser when Android asks (only needed once).
+3. Open **Gesits MID**, allow Bluetooth (and notifications).
+4. Pair the bike in Android Bluetooth settings (ignition ON, handlebar Bluetooth button), then in the
+   app tap **Choose bike - Bluetooth Classic**. Or use **Bluetooth LE** to scan for `GESITS`.
+5. **Connect**. Close other Gesits apps first; the MID may accept only one connection.
+
+**Signing.** No signing key is stored in this repo. By default GitHub signs with an Android debug key
+that it keeps in its build cache, so new builds install over old ones. If that cache expires (after 7 days
+without builds), uninstall the old app before installing a new build. For a permanent key, add two
+repository secrets, `GESITS_KEYSTORE_B64` (a `.jks` file as base64) and `GESITS_KEYSTORE_PASSWORD`;
+the workflow then signs with your key.
+
+## Build it yourself
+`gradle -p android assembleRelease` with JDK 17 and the Android SDK (compileSdk 34). Or push a
+change and let the "Android APK" workflow build it.

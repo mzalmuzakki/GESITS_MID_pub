@@ -1,0 +1,214 @@
+package io.github.mzalmuzakki.gesitsmid
+
+import android.annotation.SuppressLint
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
+import android.app.Service
+import android.bluetooth.BluetoothManager
+import android.content.Context
+import android.content.Intent
+import android.content.pm.ServiceInfo
+import android.graphics.Bitmap
+import android.os.Build
+import android.os.IBinder
+import java.util.Calendar
+import java.util.concurrent.LinkedBlockingQueue
+
+/** Shared state between the service and the screen. */
+object Bike {
+    val telemetry = Telemetry()
+    @Volatile var status = "Not connected"
+    @Volatile var connected = false
+    @Volatile var lastFrame: Bitmap? = null
+    @Volatile var lastFrameInfo = ""
+    @Volatile var running = false
+    /** One-off commands from the UI (text, picture...), sent by the service thread. */
+    val outbox = LinkedBlockingQueue<String>()
+    val log = ArrayDeque<String>()
+
+    fun log(msg: String) = synchronized(log) {
+        log.addLast(msg)
+        while (log.size > 60) log.removeFirst()
+    }
+}
+
+class Settings(ctx: Context) {
+    private val p = ctx.getSharedPreferences("settings", Context.MODE_PRIVATE)
+    var linkType: String get() = p.getString("link", "classic")!!; set(v) = p.edit().putString("link", v).apply()
+    var address: String? get() = p.getString("address", null); set(v) = p.edit().putString("address", v).apply()
+    var deviceName: String? get() = p.getString("deviceName", null); set(v) = p.edit().putString("deviceName", v).apply()
+    /** "dashboard", "picture" or "off" */
+    var screenMode: String get() = p.getString("screen", "dashboard")!!; set(v) = p.edit().putString("screen", v).apply()
+    var sendRange: Boolean get() = p.getBoolean("range", true); set(v) = p.edit().putBoolean("range", v).apply()
+    var syncTime: Boolean get() = p.getBoolean("time", true); set(v) = p.edit().putBoolean("time", v).apply()
+    var navText: String get() = p.getString("nav", "")!!; set(v) = p.edit().putString("nav", v).apply()
+    var kmPerPercent: Float get() = p.getFloat("kmpp", 1.0f); set(v) = p.edit().putFloat("kmpp", v).apply()
+    var frameSeconds: Int get() = p.getInt("frameSec", 3); set(v) = p.edit().putInt("frameSec", v).apply()
+}
+
+@SuppressLint("MissingPermission")
+class MidService : Service() {
+    companion object {
+        const val ACTION_START = "start"
+        const val ACTION_STOP = "stop"
+        private const val CHANNEL = "mid"
+        private const val NOTIF_ID = 1
+
+        fun start(ctx: Context) {
+            val i = Intent(ctx, MidService::class.java).setAction(ACTION_START)
+            if (Build.VERSION.SDK_INT >= 26) ctx.startForegroundService(i) else ctx.startService(i)
+        }
+        fun stop(ctx: Context) { ctx.startService(Intent(ctx, MidService::class.java).setAction(ACTION_STOP)) }
+    }
+
+    @Volatile private var worker: Thread? = null
+    @Volatile private var link: MidLink? = null
+    private val parser = LineParser()
+    private var lastSend = 0L
+
+    override fun onBind(intent: Intent?): IBinder? = null
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent?.action == ACTION_STOP) {
+            Bike.running = false
+            worker?.interrupt()
+            link?.close()
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            stopSelf()
+            return START_NOT_STICKY
+        }
+        goForeground()
+        if (worker?.isAlive != true) {
+            Bike.running = true
+            worker = Thread({ runLoop() }, "mid-worker").also { it.start() }
+        }
+        return START_STICKY
+    }
+
+    private fun goForeground() {
+        val nm = getSystemService(NotificationManager::class.java)
+        nm.createNotificationChannel(NotificationChannel(CHANNEL, "Bike connection", NotificationManager.IMPORTANCE_LOW))
+        val open = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
+        val n: Notification = Notification.Builder(this, CHANNEL)
+            .setContentTitle("Gesits MID")
+            .setContentText("Connected to the bike's dashboard")
+            .setSmallIcon(android.R.drawable.stat_sys_data_bluetooth)
+            .setContentIntent(open)
+            .setOngoing(true)
+            .build()
+        if (Build.VERSION.SDK_INT >= 29) startForeground(NOTIF_ID, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE)
+        else startForeground(NOTIF_ID, n)
+    }
+
+    private fun setStatus(s: String) { Bike.status = s; Bike.log(s) }
+
+    private fun openLink(s: Settings): MidLink? {
+        val adapter = getSystemService(BluetoothManager::class.java)?.adapter
+        if (adapter == null || !adapter.isEnabled) { setStatus("Bluetooth is off"); return null }
+        val addr = s.address ?: run { setStatus("Choose the bike first"); return null }
+        val device = adapter.getRemoteDevice(addr)
+        val onData: (ByteArray) -> Unit = { bytes ->
+            synchronized(parser) { parser.feed(bytes) { k, v -> Bike.telemetry.put(k, v) } }
+        }
+        val onClosed: () -> Unit = { Bike.connected = false; setStatus("Connection lost - retrying") }
+        val l: MidLink = if (s.linkType == "ble") BleLink(this, device, onData, onClosed) else ClassicLink(device, onData, onClosed)
+        setStatus("Connecting (${l.name}) to ${s.deviceName ?: addr}...")
+        return try {
+            l.open(); Bike.connected = true; setStatus("Connected (${l.name}) to ${s.deviceName ?: addr}"); l
+        } catch (e: Exception) {
+            setStatus("Connect failed: ${e.message}"); null
+        }
+    }
+
+    /** All writes go through here: one at a time, >= 30 ms apart (as GESITS Dashboard does). */
+    private fun send(cmd: String) {
+        val l = link ?: return
+        val wait = lastSend + 30 - System.currentTimeMillis()
+        if (wait > 0) Thread.sleep(wait)
+        l.write(cmd.toByteArray(Charsets.US_ASCII))
+        lastSend = System.currentTimeMillis()
+    }
+
+    private fun picturePayload(s: Settings): String? = when (s.screenMode) {
+        "dashboard" -> {
+            val bmp = ScreenRenderer.render(Bike.telemetry, s.kmPerPercent)
+            Bike.lastFrame = bmp
+            ScreenRenderer.toMapsBase64(bmp)
+        }
+        "picture" -> try { openFileInput("picture.b64").bufferedReader().readText() } catch (_: Exception) { null }
+        else -> null
+    }
+
+    private fun runLoop() {
+        val s = Settings(this)
+        var keyIdx = 0
+        var navIdx = 0
+        var lastPoll = 0L; var lastFrame = 0L; var lastTrip = 0L; var lastNav = 0L; var lastTime = 0L
+        while (Bike.running) {
+            try {
+                if (link?.isOpen != true) {
+                    link?.close()
+                    link = openLink(s)
+                    if (link == null) { Thread.sleep(5000); continue }
+                    lastFrame = System.currentTimeMillis() - s.frameSeconds * 1000L + 1500   // first frame after some data
+                    lastTime = 0L
+                }
+                val now = System.currentTimeMillis()
+
+                while (true) send(Bike.outbox.poll() ?: break)
+
+                if (now - lastPoll >= 200) {
+                    send(Mid.query(Mid.POLL_KEYS[keyIdx]))
+                    keyIdx = (keyIdx + 1) % Mid.POLL_KEYS.size
+                    lastPoll = now
+                }
+                if (s.syncTime && now - lastTime >= 60_000) {
+                    val c = Calendar.getInstance()
+                    send(Mid.time(c.get(Calendar.HOUR_OF_DAY), c.get(Calendar.MINUTE)))
+                    lastTime = now
+                }
+                if (s.sendRange && now - lastTrip >= 3000) {
+                    Bike.telemetry.rangeKm(s.kmPerPercent)?.let { send(Mid.trip(it)) }
+                    lastTrip = now
+                }
+                val parts = Mid.splitNav(s.navText)
+                if (parts.isNotEmpty() && now - lastNav >= 5000) {
+                    navIdx %= parts.size
+                    send(Mid.nav(parts[navIdx++]))
+                    lastNav = now
+                }
+                if (s.screenMode != "off" && now - lastFrame >= s.frameSeconds * 1000L) {
+                    val t0 = System.currentTimeMillis()
+                    val b64 = picturePayload(s)
+                    if (b64 != null) {
+                        send(Mid.maps(b64))
+                        Bike.lastFrameInfo = "Picture sent: ${b64.length} chars in ${System.currentTimeMillis() - t0} ms"
+                    } else if (s.screenMode == "dashboard") {
+                        Bike.lastFrameInfo = "Dashboard picture too large"
+                    }
+                    lastFrame = System.currentTimeMillis()
+                }
+                Thread.sleep(20)
+            } catch (_: InterruptedException) {
+                break
+            } catch (e: Exception) {
+                setStatus("Error: ${e.message} - reconnecting")
+                Bike.connected = false
+                link?.close(); link = null
+                try { Thread.sleep(2000) } catch (_: InterruptedException) { break }
+            }
+        }
+        link?.close(); link = null
+        Bike.connected = false
+        setStatus("Stopped")
+    }
+
+    override fun onDestroy() {
+        Bike.running = false
+        worker?.interrupt()
+        link?.close()
+        super.onDestroy()
+    }
+}
