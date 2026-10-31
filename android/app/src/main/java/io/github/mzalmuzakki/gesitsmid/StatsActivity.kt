@@ -93,12 +93,11 @@ class StatsActivity : Activity() {
         Ui.text(a, col, "Top speed: " + (st.topSpeed?.let { "${it.toInt()} km/h" } ?: "--"))
 
         Ui.header(a, col, "Ride history")
-        val tf = SimpleDateFormat("EEE d MMM, HH:mm", indo)
+        val tf = SimpleDateFormat("d MMM HH:mm", indo)
         if (rides.isEmpty()) Ui.text(a, col, "No rides yet. Rides are recorded automatically while the app is connected.", 13f, Ui.MUTED)
         rides.takeLast(30).reversed().forEach { ride ->
-            Ui.text(a, col, String.format(Locale.US, "%s  %.1f km  %s  %d→%d%%  max %d km/h", tf.format(Date(ride.startMs)), ride.km,
-                ride.whPerKm?.let { String.format(Locale.US, "%.0f Wh/km", it) } ?: "--", ride.socStart.toInt(), ride.socEnd.toInt(),
-                ride.maxSpeed.toInt()), 13f, mono = true)
+            Ui.text(a, col, String.format(Locale.US, "%-12s %5.1f km  %3s Wh/km  %d→%d%%", tf.format(Date(ride.startMs)), ride.km,
+                ride.whPerKm?.let { String.format(Locale.US, "%.0f", it) } ?: "--", ride.socStart.toInt(), ride.socEnd.toInt()), 12f, mono = true)
         }
 
         Ui.header(a, col, "Settings")

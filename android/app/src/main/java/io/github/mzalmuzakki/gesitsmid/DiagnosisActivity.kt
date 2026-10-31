@@ -16,7 +16,8 @@ class DiagnosisActivity : Activity() {
     private lateinit var settings: Settings
     private lateinit var errors: TextView
     private lateinit var values: TextView
-    private lateinit var speedPower: ChartView
+    private lateinit var speed: ChartView
+    private lateinit var power: ChartView
     private lateinit var throttle: ChartView
     private lateinit var temps: ChartView
     private val ui = Handler(Looper.getMainLooper())
@@ -47,8 +48,10 @@ class DiagnosisActivity : Activity() {
         Ui.header(a, col, "Now")
         values = Ui.text(a, col, mono = true)
 
-        Ui.header(a, col, "Speed & power (last 10 min)")
-        speedPower = ChartView(this, 160).also { col.addView(it) }
+        Ui.header(a, col, "Speed (last 10 min)")
+        speed = ChartView(this, 120).also { col.addView(it) }
+        Ui.header(a, col, "Power (kW, below 0 = regen)")
+        power = ChartView(this, 120).also { col.addView(it) }
         Ui.header(a, col, "Throttle")
         throttle = ChartView(this, 110).also { col.addView(it) }
         Ui.header(a, col, "Temperatures (°C)")
@@ -89,10 +92,8 @@ class DiagnosisActivity : Activity() {
             "Temps  battery ${v("TBAT", "")}  motor ${v("TMOT", "")}  inverter ${v("TINV", "")} °C"
 
         val s = synchronized(Bike.samples) { Bike.samples.toList() }
-        speedPower.series = listOf(
-            ChartView.Series("km/h", Color.rgb(255, 150, 60), s.map { it.spd }),
-            ChartView.Series("kW", Ui.GREEN, s.map { it.powerW?.div(1000f) }),
-        )
+        speed.series = listOf(ChartView.Series("km/h", Color.rgb(255, 150, 60), s.map { it.spd }))
+        power.series = listOf(ChartView.Series("kW", Ui.GREEN, s.map { it.powerW?.div(1000f) }))
         throttle.series = listOf(ChartView.Series("throttle", Color.rgb(255, 210, 60), s.map { it.trt }))
         temps.series = listOf(
             ChartView.Series("battery", Color.rgb(170, 90, 255), s.map { it.tbat }),

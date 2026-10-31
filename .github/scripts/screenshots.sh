@@ -7,6 +7,8 @@ PKG=io.github.mzalmuzakki.gesitsmid
 adb install -r "$APK"
 for p in BLUETOOTH_CONNECT BLUETOOTH_SCAN POST_NOTIFICATIONS; do adb shell pm grant $PKG android.permission.$p || true; done
 mkdir -p shots
+# Skip Android's one-time "Viewing full screen" tip (a real phone shows it once)
+adb shell settings put secure immersive_mode_confirmations confirmed
 shot() { sleep "$2"; adb exec-out screencap -p > "shots/$1.png"; }
 swipe() { adb shell input swipe 540 1900 540 500 400; }
 open() { adb shell am force-stop $PKG; adb shell am start -W -n $PKG/.MainActivity --ez demo true ${1:+--es open $1}; }
