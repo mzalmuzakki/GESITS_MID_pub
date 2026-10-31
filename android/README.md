@@ -16,13 +16,24 @@ GitHub Actions builds it, so you know exactly what you install.
   readings are ignored. **Forget learned range** starts over (e.g. after a battery change).
 * **Clock sync:** sets the MID clock from your phone on connect, at every minute change, and every 30 s.
 * Optionally shows your own text line (rotating, 20 characters per step).
+* **Stats:** rides are recorded automatically (start when moving, end after 5 min stopped). Shows
+  totals, a weekly target, 8-week and 7-day charts, records, average Wh/km, regen recovered,
+  **savings vs a petrol motorcycle** (Rp after electricity cost, litres, CO₂; prices adjustable),
+  ride history, and CSV export.
+* **Diagnosis:** live charts (speed/power, throttle, temperatures, last 10 min) and MID errors with
+  plain-language advice. **Alarms** (phone notifications): low battery, hot battery or motor, battery
+  health below 75%, MID errors.
+* **Speedometer:** full-screen landscape dashboard on the phone (speed, battery, range, power or regen,
+  trip, temperatures).
+* **Maps hand-off:** "Navigate" and "SPKLU near me" open Google Maps, so this app itself stays offline.
+  Optional **"Remember where I parked"** saves the phone's GPS position when you park or switch off.
 * Keeps running with the screen off, shown by a "Gesits MID" notification. Stop it with **Disconnect**.
 
 ## Why it's "safe"
 | | This app | GESITS Dashboard (community) |
 |---|---|---|
 | Internet | **none** (no INTERNET permission) | yes |
-| Permissions | Bluetooth, notification, foreground service | + camera, microphone, screen capture, overlay, **install other apps**, storage, location |
+| Permissions | Bluetooth, notifications, foreground service; location only if you switch on "Remember where I parked" (Android 8–11 also need it for BLE scanning) | + camera, microphone, screen capture, overlay, **install other apps**, storage |
 | Third-party libraries | **none** | Mapbox, BouncyCastle, Play Services, ... |
 | Writes odometer | **never** | yes (`AT+ODO=`) |
 | Source | this repo, built by GitHub Actions | closed APK |

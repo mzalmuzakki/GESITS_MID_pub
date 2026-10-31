@@ -37,6 +37,14 @@ object Bike {
     }
     fun rangeKm(): Float? = Bike.telemetry.f("SOC")?.let { soc -> synchronized(range) { range.rangeKm(soc) } }
 
+    /** Last ~10 minutes of per-second samples for the Diagnosis charts; guard with synchronized(samples). */
+    val samples = ArrayDeque<Sample>()
+    fun addSample(x: Sample) = synchronized(samples) { samples.addLast(x); while (samples.size > 600) samples.removeFirst() }
+
+    /** Automatic ride recording and alarms (used only by the service thread). */
+    val recorder = RideRecorder()
+    val alarms = AlarmMonitor()
+
     /** Trip & efficiency; guard access with synchronized(trip). */
     val trip = TripTracker()
     @Volatile var tripLoaded = false
@@ -64,6 +72,17 @@ class Settings(ctx: Context) {
     var tripState: String? get() = p.getString("tripState", null); set(v) = p.edit().putString("tripState", v).apply()
     /** "auto" (BIG while riding, MAIN/TRIP when stopped), "main", "trip", "big", "rotate" */
     var dashStyle: String get() = p.getString("dashStyle", "auto")!!; set(v) = p.edit().putString("dashStyle", v).apply()
+    // Alarms, savings comparison, weekly target, parking location
+    var alarmsOn: Boolean get() = p.getBoolean("alarms", true); set(v) = p.edit().putBoolean("alarms", v).apply()
+    var socLow: Float get() = p.getFloat("socLow", 20f); set(v) = p.edit().putFloat("socLow", v).apply()
+    var kmPerLitre: Float get() = p.getFloat("kmL", 40f); set(v) = p.edit().putFloat("kmL", v).apply()
+    var rpPerLitre: Float get() = p.getFloat("rpL", 10_000f); set(v) = p.edit().putFloat("rpL", v).apply()
+    var rpPerKwh: Float get() = p.getFloat("rpKwh", 1444.7f); set(v) = p.edit().putFloat("rpKwh", v).apply()
+    var weeklyTargetKm: Float get() = p.getFloat("weekTarget", 100f); set(v) = p.edit().putFloat("weekTarget", v).apply()
+    var rememberParking: Boolean get() = p.getBoolean("parking", false); set(v) = p.edit().putBoolean("parking", v).apply()
+    var parkLat: Float get() = p.getFloat("parkLat", 0f); set(v) = p.edit().putFloat("parkLat", v).apply()
+    var parkLon: Float get() = p.getFloat("parkLon", 0f); set(v) = p.edit().putFloat("parkLon", v).apply()
+    var parkTime: Long get() = p.getLong("parkTime", 0L); set(v) = p.edit().putLong("parkTime", v).apply()
     var rangeState: String? get() = p.getString("rangeState", null); set(v) = p.edit().putString("rangeState", v).apply()
     var margins: ScreenRenderer.Margins
         get() = ScreenRenderer.Margins(p.getInt("mL", 0), p.getInt("mT", 0), p.getInt("mR", 0), p.getInt("mB", 0))
@@ -116,7 +135,7 @@ class MidService : Service() {
             stopSelf()
             return START_NOT_STICKY
         }
-        goForeground()
+        goForeground(fromApp = intent != null)
         holdWakeLock(true)
         if (worker?.isAlive != true) {
             Bike.running = true
@@ -125,7 +144,7 @@ class MidService : Service() {
         return START_STICKY
     }
 
-    private fun goForeground() {
+    private fun goForeground(fromApp: Boolean) {
         val nm = getSystemService(NotificationManager::class.java)
         nm.createNotificationChannel(NotificationChannel(CHANNEL, "Bike connection", NotificationManager.IMPORTANCE_LOW))
         val open = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
@@ -136,8 +155,14 @@ class MidService : Service() {
             .setContentIntent(open)
             .setOngoing(true)
             .build()
-        if (Build.VERSION.SDK_INT >= 29) startForeground(NOTIF_ID, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE)
-        else startForeground(NOTIF_ID, n)
+        // Location type only when parking location is on, permitted, and started from the app (Android rule).
+        var type = ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
+        if (Build.VERSION.SDK_INT >= 29 && fromApp && Settings(this).rememberParking && Parking.hasPermission(this))
+            type = type or ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
+        if (Build.VERSION.SDK_INT >= 29) {
+            try { startForeground(NOTIF_ID, n, type) }
+            catch (e: Exception) { startForeground(NOTIF_ID, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE) }
+        } else startForeground(NOTIF_ID, n)
     }
 
     private fun setStatus(s: String) { Bike.status = s; Bike.log(s) }
@@ -208,6 +233,8 @@ class MidService : Service() {
         while (Bike.running) {
             try {
                 if (link?.isOpen != true) {
+                    // Not connected (e.g. ignition off): close the ride after the idle time.
+                    Bike.recorder.tick(System.currentTimeMillis())?.let { rideFinished(it, s) }
                     link?.close()
                     link = openLink(s)
                     if (link == null) { Thread.sleep(2000); continue }
@@ -242,6 +269,17 @@ class MidService : Service() {
                 // Adaptive range: learn from ODO vs SOC once per second, save when something was learned.
                 if (now - lastLearn >= 1000) {
                     val tm = Bike.telemetry
+                    Bike.addSample(Sample(now, tm.f("SPD"), tm.powerW, tm.f("TRT"), tm.f("TBAT"), tm.f("TMOT"), tm.f("TINV")))
+                    Bike.recorder.sample(now, tm.f("SPD"), tm.f("ODO"), tm.f("SOC"), tm.f("VBAT"), tm.f("IBAT"))
+                        ?.let { rideFinished(it, s) }
+                    val gearNow = tm.gear
+                    if (gearNow == "P" && lastGear == "D") Parking.capture(this, s)    // stand down / parked
+                    if (gearNow != null) lastGear = gearNow
+                    if (s.alarmsOn) {
+                        Bike.alarms.socLow = s.socLow
+                        Bike.alarms.evaluate(tm.f("SOC"), tm.f("TBAT"), tm.f("TMOT"), tm.f("SOH"), tm.errors)
+                            .forEach { Alerts.notify(this, it) }
+                    }
                     synchronized(Bike.trip) { Bike.trip.update(tm.f("ODO"), tm.f("SOC"), tm.f("VBAT"), tm.f("IBAT"), now) }
                     val odo = Bike.telemetry.f("ODO"); val soc = Bike.telemetry.f("SOC")
                     if (odo != null && soc != null) {
@@ -292,9 +330,18 @@ class MidService : Service() {
                 try { Thread.sleep(2000) } catch (_: InterruptedException) { break }
             }
         }
+        Bike.recorder.finish(System.currentTimeMillis())?.let { rideFinished(it, s) }
         link?.close(); link = null
         Bike.connected = false
         setStatus("Stopped")
+    }
+
+    private var lastGear: String? = null
+
+    private fun rideFinished(r: Ride, s: Settings) {
+        RideStore.add(this, r)
+        Bike.log(String.format(java.util.Locale.US, "Ride saved: %.1f km, %.0f Wh", r.km, r.energyWh))
+        Parking.capture(this, s)
     }
 
     override fun onDestroy() {

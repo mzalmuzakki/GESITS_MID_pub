@@ -46,6 +46,15 @@ class MainActivity : Activity() {
     private lateinit var logView: TextView
     private lateinit var rangeInfo: TextView
     private lateinit var bgInfo: TextView
+    private lateinit var parkInfo: TextView
+
+    private fun openMaps(primary: Uri, fallback: Uri?) {
+        try { startActivity(Intent(Intent.ACTION_VIEW, primary)) }
+        catch (_: Exception) {
+            try { if (fallback != null) startActivity(Intent(Intent.ACTION_VIEW, fallback)) else toast("No maps app found") }
+            catch (_: Exception) { toast("No maps app found") }
+        }
+    }
 
     private companion object {
         val DASH_STYLES = listOf(
@@ -197,6 +206,12 @@ class MainActivity : Activity() {
             text = "Bluetooth only - this app has no internet permission."; setTextColor(Color.GRAY)
         })
 
+        val nav1 = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        button(nav1, "Speedometer") { startActivity(Intent(this, SpeedoActivity::class.java)) }
+        button(nav1, "Stats") { startActivity(Intent(this, StatsActivity::class.java)) }
+        button(nav1, "Diagnosis") { startActivity(Intent(this, DiagnosisActivity::class.java)) }
+        root.addView(nav1)
+
         header(root, "Bike")
         status = TextView(this).apply { setTextColor(Color.WHITE) }
         root.addView(status)
@@ -347,6 +362,37 @@ class MainActivity : Activity() {
         }
         root.addView(consoleRow)
 
+        header(root, "Maps (opens Google Maps - this app stays offline)")
+        val dest = EditText(this).apply {
+            hint = "Destination, e.g. Monas Jakarta"; setTextColor(Color.WHITE); setHintTextColor(Color.GRAY)
+            inputType = InputType.TYPE_CLASS_TEXT
+        }
+        root.addView(dest)
+        val mapsRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        button(mapsRow, "Navigate") {
+            val q = Uri.encode(dest.text.toString().trim())
+            if (q.isEmpty()) { toast("Type a destination first"); return@button }
+            openMaps(Uri.parse("google.navigation:q=$q&mode=l"), Uri.parse("geo:0,0?q=$q"))   // mode=l: two-wheeler
+        }
+        button(mapsRow, "SPKLU near me") { openMaps(Uri.parse("geo:0,0?q=SPKLU"), null) }
+        root.addView(mapsRow)
+        root.addView(CheckBox(this).apply {
+            text = "Remember where I parked (uses phone GPS when you park or switch off; stays on this phone)"
+            isChecked = settings.rememberParking; setTextColor(Color.WHITE)
+            setOnCheckedChangeListener { _, b ->
+                settings.rememberParking = b
+                if (b && !Parking.hasPermission(this@MainActivity))
+                    requestPermissions(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION), 2)
+            }
+        })
+        parkInfo = TextView(this).apply { setTextColor(Color.GRAY) }
+        root.addView(parkInfo)
+        button(root, "Show parked bike in Maps") {
+            if (settings.parkTime == 0L) { toast("No parked location saved yet"); return@button }
+            val ll = "${settings.parkLat},${settings.parkLon}"
+            openMaps(Uri.parse("geo:$ll?q=$ll(Gesits)"), null)
+        }
+
         header(root, "Keep connected in the background")
         bgInfo = TextView(this).apply { setTextColor(Color.WHITE) }
         root.addView(bgInfo)
@@ -413,6 +459,8 @@ class MainActivity : Activity() {
         Bike.lastFrame?.let { preview.setImageBitmap(it) }
         frameInfo.text = Bike.lastFrameInfo
         rangeInfo.text = synchronized(Bike.range) { Bike.range.describe() }
+        parkInfo.text = if (settings.parkTime == 0L) "Parked location: none saved" else
+            "Parked location saved " + java.text.SimpleDateFormat("EEE d MMM, HH:mm", Locale("id", "ID")).format(java.util.Date(settings.parkTime))
         val pm = getSystemService(android.os.PowerManager::class.java)
         bgInfo.text = if (pm.isIgnoringBatteryOptimizations(packageName)) "Battery restriction: off (good)"
                       else "Battery restriction: ON - the phone may cut the connection in the background"

@@ -6,8 +6,11 @@
          send anything off your phone. -->
     <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
     <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />
-    <!-- Android 8-11 require location permission to scan for BLE devices. -->
-    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" android:maxSdkVersion="30" />
+    <!-- Location: needed on Android 8-11 to scan for BLE devices, and (only if you switch on
+         "Remember where I parked") to save the parking spot. It never leaves the phone. -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
     <uses-permission android:name="android.permission.BLUETOOTH_SCAN"
         android:usesPermissionFlags="neverForLocation"
@@ -45,6 +48,11 @@
         <service
             android:name=".MidService"
             android:exported="false"
-            android:foregroundServiceType="connectedDevice" />
+            android:foregroundServiceType="connectedDevice|location" />
+
+        <activity android:name=".StatsActivity" android:exported="false" android:label="Stats" />
+        <activity android:name=".DiagnosisActivity" android:exported="false" android:label="Diagnosis" />
+        <activity android:name=".SpeedoActivity" android:exported="false" android:label="Speedometer"
+            android:screenOrientation="sensorLandscape" android:theme="@android:style/Theme.Material.NoActionBar.Fullscreen" />
     </application>
 </manifest>
