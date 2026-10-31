@@ -58,7 +58,7 @@ object Bike {
 
     fun log(msg: String) = synchronized(log) {
         log.addLast(java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US).format(java.util.Date()) + " " + msg)
-        while (log.size > 300) log.removeFirst()
+        while (log.size > 200) log.removeFirst()
     }
 }
 

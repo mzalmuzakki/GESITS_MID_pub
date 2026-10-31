@@ -13,16 +13,18 @@ shot() { sleep "$2"; adb exec-out screencap -p > "shots/$1.png"; }
 swipe() { adb shell input swipe 540 1900 540 500 400; }
 open() { adb shell am force-stop $PKG; adb shell am start -W -n $PKG/.MainActivity --ez demo true ${1:+--es open $1}; }
 
-open "";          shot 1-main 5
-swipe;            shot 2-main-2 2
-swipe; swipe;     shot 3-main-3 2
-swipe; swipe;     shot 4-main-4 2
-open stats;       shot 5-stats 5
-swipe;            shot 6-stats-2 2
-swipe; swipe;     shot 7-stats-3 2
-open diagnosis;   shot 8-diagnosis 5
-swipe;            shot 9-diagnosis-charts 2
-open speedo;      shot 10-speedometer 6
+open "";          shot 01-home 5
+swipe;            shot 02-home-2 2
+open mid;         shot 03-mid 5
+swipe;            shot 04-mid-2 2
+open trips;       shot 05-trips 5
+swipe;            shot 06-trips-2 2
+swipe; swipe;     shot 07-trips-3 2
+open tools;       shot 08-tools 5
+swipe;            shot 09-tools-2 2
+open diagnosis;   shot 10-diagnosis 5
+swipe;            shot 11-diagnosis-2 2
+open speedo;      shot 12-speedometer 6
 
 {
   echo "== Foreground (Speedometer open) =="

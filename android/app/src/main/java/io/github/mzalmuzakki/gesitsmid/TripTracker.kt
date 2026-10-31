@@ -28,6 +28,11 @@ class TripTracker(
     /** km per 1 % battery on this trip, once at least 2 % has been used. */
     val kmPerPercent: Float? get() = if (socUsed >= 2f) km / socUsed else null
 
+    /** Forget everything (used by "Delete all my data"). */
+    fun clear() {
+        startOdo = Float.NaN; startSoc = Float.NaN; lastOdo = Float.NaN; lastSoc = Float.NaN; energyWh = 0f; lastPowerMs = -1L
+    }
+
     fun reset() {
         startOdo = lastOdo; startSoc = lastSoc; energyWh = 0f; lastPowerMs = -1L
     }

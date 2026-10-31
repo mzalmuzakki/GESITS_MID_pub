@@ -24,6 +24,7 @@ object RideStore {
     private var cache: MutableList<Ride>? = null
 
     @Synchronized fun all(ctx: Context): List<Ride> {
+        Demo.rides?.let { return it }
         cache?.let { return it.toList() }
         val f = File(ctx.filesDir, FILE)
         val list = if (f.exists()) f.readLines().mapNotNull { Ride.fromLine(it) }.toMutableList() else mutableListOf()
@@ -32,6 +33,7 @@ object RideStore {
     }
 
     @Synchronized fun add(ctx: Context, r: Ride) {
+        if (Demo.rides != null) return
         all(ctx)
         cache!!.add(r)
         File(ctx.filesDir, FILE).appendText(r.toLine() + "\n")
@@ -77,7 +79,7 @@ object Parking {
         val save = { l: Location? ->
             if (l != null) {
                 s.parkLat = l.latitude.toFloat(); s.parkLon = l.longitude.toFloat(); s.parkTime = System.currentTimeMillis()
-                Bike.log(String.format(java.util.Locale.US, "Parked at %.5f, %.5f", l.latitude, l.longitude))
+                Bike.log("Parking location saved")   // coordinates are never written to the log
             }
         }
         try {
@@ -95,9 +97,11 @@ object Parking {
     }
 }
 
-/** Fake live data and rides, used only when the app is launched with the "demo" flag (screenshots). */
+/** Fake live data and rides for screenshots. Everything stays in memory: nothing is written to storage. */
 object Demo {
-    fun load(ctx: Context) {
+    @Volatile var rides: List<Ride>? = null
+
+    fun load() {
         val t = Bike.telemetry
         listOf("SPD" to "38", "SOC" to "78", "SOH" to "96", "ODO" to "3812.4", "MODE" to "1", "PARK" to "0",
             "VBAT" to "79.6", "IBAT" to "21.5", "TBAT" to "36", "TMOT" to "54", "TINV" to "47", "TRT" to "42",
@@ -114,15 +118,13 @@ object Demo {
                     (spd * 1.1f), 34f + i / 120f, 48f + i / 60f, 43f + i / 100f))
             }
         }
-        if (RideStore.all(ctx).isEmpty()) {
-            val day = 24 * 3600_000L
-            listOf(0 to 12.4f, 1 to 18.2f, 1 to 6.1f, 2 to 22.7f, 4 to 9.8f, 5 to 31.5f, 8 to 14.0f, 10 to 26.3f, 15 to 19.9f, 22 to 40.2f)
-                .forEach { (d, km) ->
-                    val start = now - d * day - 3 * 3600_000L
-                    RideStore.add(ctx, Ride(start, start + (km * 110_000).toLong(), km, km * 29.5f, km * 2.1f,
-                        90f, 90f - km * 1.4f, 58f + km / 3, (km * 100_000).toLong()))
-                }
-        }
+        val day = 24 * 3600_000L
+        rides = listOf(22 to 40.2f, 15 to 19.9f, 10 to 26.3f, 8 to 14.0f, 5 to 31.5f, 4 to 9.8f, 2 to 22.7f, 1 to 6.1f, 1 to 18.2f, 0 to 12.4f)
+            .mapIndexed { i, (d, km) ->
+                val start = now - d * day - 3 * 3600_000L
+                Ride(start, start + (km * 110_000).toLong(), km, km * (27f + (i % 4) * 2f), km * 2.1f,
+                    90f, 90f - km * 1.4f, 58f + km / 3, (km * 100_000).toLong())
+            }
         synchronized(Bike.trip) { Bike.trip.update(3800f, 86f, null, null, now); Bike.trip.update(3812.4f, 78f, null, null, now) }
     }
 }

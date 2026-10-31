@@ -11,42 +11,491 @@ import android.bluetooth.le.ScanResult
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.BitmapFactory
-import android.graphics.Color
 import android.graphics.Typeface
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
-import android.text.InputType
+import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
-import android.view.WindowManager
-import android.widget.Button
-import android.widget.CheckBox
-import android.widget.EditText
+import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
-import android.widget.RadioButton
-import android.widget.RadioGroup
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
+import java.text.SimpleDateFormat
+import java.util.Date
 import java.util.Locale
 
+/**
+ * One screen with a bottom navigation bar: Home, MID, Trips, Tools.
+ * Pages are built once, on first use, and only the visible page is refreshed (twice a second).
+ */
 @SuppressLint("MissingPermission", "SetTextI18n")
 @Suppress("DEPRECATION")
 class MainActivity : Activity() {
     private val ui = Handler(Looper.getMainLooper())
     private lateinit var settings: Settings
-    private lateinit var status: TextView
-    private lateinit var live: TextView
-    private lateinit var frameInfo: TextView
+    private lateinit var content: FrameLayout
+    private lateinit var statusChip: TextView
+    private val tabs = LinkedHashMap<String, TextView>()
+    private val pages = HashMap<String, ScrollView>()
+    private var current = "home"
+    private var tripsPage: TripsPage? = null
+    private val pickPicture = 42
+
+    private val tick = object : Runnable { override fun run() { refresh(); ui.postDelayed(this, 500) } }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        settings = Settings(this)
+        Bike.loadRange(settings); Bike.loadTrip(settings)
+        window.statusBarColor = Ui.BG; window.navigationBarColor = Ui.CARD
+        setContentView(shell())
+
+        // Demo data for screenshots: only with USB debugging on, and kept in memory only (nothing is saved).
+        val demo = intent?.getBooleanExtra("demo", false) == true &&
+            android.provider.Settings.Global.getInt(contentResolver, android.provider.Settings.Global.ADB_ENABLED, 0) == 1
+        if (demo) {
+            Demo.load()
+            Bike.lastFrame = synchronized(Bike.trip) { ScreenRenderer.render(Bike.telemetry, Bike.rangeKm(), settings.margins) }
+            when (val o = intent.getStringExtra("open")) {
+                "diagnosis" -> startActivity(Intent(this, DiagnosisActivity::class.java))
+                "speedo" -> startActivity(Intent(this, SpeedoActivity::class.java))
+                null -> show("home")
+                else -> show(o)
+            }
+            if (current != intent.getStringExtra("open")) show("home")
+        } else show("home")
+    }
+
+    override fun onResume() { super.onResume(); ui.post(tick) }
+    override fun onPause() { super.onPause(); ui.removeCallbacks(tick) }
+
+    // ================================================================ shell + navigation
+    private fun shell(): View {
+        val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setBackgroundColor(Ui.BG) }
+        val top = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(18), dp(14), dp(14), dp(8))
+        }
+        top.addView(TextView(this).apply {
+            text = "Gesits MID"; textSize = 22f; setTypeface(typeface, Typeface.BOLD); setTextColor(Ui.TEXT)
+        }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        statusChip = TextView(this).apply { textSize = 13f; setPadding(dp(12), dp(6), dp(12), dp(6)) }
+        top.addView(statusChip)
+        root.addView(top)
+        content = FrameLayout(this)
+        root.addView(content, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+        val nav = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setBackgroundColor(Ui.CARD); setPadding(0, dp(4), 0, dp(4)) }
+        listOf("home" to "🏠\nHome", "mid" to "🖥️\nMID", "trips" to "📊\nTrips", "tools" to "🛠️\nTools")
+            .forEach { (key, label) ->
+                tabs[key] = TextView(this).apply {
+                    text = label; textSize = 12f; gravity = Gravity.CENTER; setPadding(0, dp(6), 0, dp(6))
+                    setOnClickListener { show(key) }
+                }.also { nav.addView(it, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)) }
+            }
+        root.addView(nav)
+        return root
+    }
+
+    private fun show(key: String) {
+        if (key !in tabs) return
+        current = key
+        tabs.forEach { (k, v) ->
+            v.setTextColor(if (k == key) Ui.GREEN else Ui.MUTED)
+            v.setTypeface(null, if (k == key) Typeface.BOLD else Typeface.NORMAL)
+        }
+        val page = pages.getOrPut(key) {
+            when (key) { "home" -> homePage(); "mid" -> midPage(); "trips" -> tripsPageView(); else -> toolsPage() }
+        }
+        if (key == "trips") tripsPage?.build(page.getChildAt(0) as LinearLayout)   // fresh numbers each visit
+        content.removeAllViews(); content.addView(page)
+        refresh()
+    }
+
+    private fun dp(v: Int) = Ui.dp(this, v)
+    private fun toast(s: String) = Toast.makeText(this, s, Toast.LENGTH_LONG).show()
+
+    // ================================================================ permissions + bike selection
+    private fun neededPermissions(): Array<String> = when {
+        Build.VERSION.SDK_INT >= 33 -> arrayOf(Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.POST_NOTIFICATIONS)
+        Build.VERSION.SDK_INT >= 31 -> arrayOf(Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_SCAN)
+        else -> arrayOf(Manifest.permission.ACCESS_FINE_LOCATION)
+    }
+    private fun hasPermissions() = neededPermissions().all { checkSelfPermission(it) == PackageManager.PERMISSION_GRANTED }
+
+    /** Asks only when needed (first time you choose or connect the bike), never on app start. */
+    private fun requireReady(): Boolean {
+        if (!hasPermissions()) {
+            requestPermissions(neededPermissions().filter { checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED }.toTypedArray(), 1)
+            toast("Allow Bluetooth access, then tap again"); return false
+        }
+        val adapter = getSystemService(BluetoothManager::class.java)?.adapter
+        if (adapter == null || !adapter.isEnabled) { toast("Turn Bluetooth on first"); return false }
+        return true
+    }
+
+    private fun chooseClassic() {
+        if (!requireReady()) return
+        val devices = getSystemService(BluetoothManager::class.java).adapter.bondedDevices.toList()
+            .sortedByDescending { (it.name ?: "").contains("GESITS", ignoreCase = true) }
+        if (devices.isEmpty()) {
+            AlertDialog.Builder(this).setTitle("No paired devices")
+                .setMessage("Pair the bike first: ignition ON, press the Bluetooth button on the left handlebar, then pair it in Android Bluetooth settings.")
+                .setPositiveButton("Open Bluetooth settings") { _, _ -> startActivity(Intent(android.provider.Settings.ACTION_BLUETOOTH_SETTINGS)) }
+                .setNegativeButton("Cancel", null).show()
+            return
+        }
+        AlertDialog.Builder(this).setTitle("Choose your bike")
+            .setItems(devices.map { "${it.name ?: "(no name)"}\n${it.address}" }.toTypedArray()) { _, i -> pick(devices[i], "classic") }.show()
+    }
+
+    private fun chooseBle() {
+        if (!requireReady()) return
+        val scanner = getSystemService(BluetoothManager::class.java).adapter.bluetoothLeScanner ?: run { toast("BLE not available"); return }
+        val found = LinkedHashMap<String, BluetoothDevice>(); val names = HashMap<String, String>()
+        val cb = object : ScanCallback() {
+            override fun onScanResult(callbackType: Int, result: ScanResult) {
+                val n = result.scanRecord?.deviceName ?: result.device.name ?: return
+                found[result.device.address] = result.device; names[result.device.address] = n
+            }
+        }
+        val wait = AlertDialog.Builder(this).setTitle("Searching…").setMessage("Looking for GESITS for 8 seconds").setCancelable(false).show()
+        scanner.startScan(cb)
+        ui.postDelayed({
+            try { scanner.stopScan(cb) } catch (_: Exception) {}
+            wait.dismiss()
+            val list = found.values.sortedByDescending { names[it.address] == Mid.BLE_NAME }
+            if (list.isEmpty()) { toast("Nothing found. Ignition on? Press the MID Bluetooth button."); return@postDelayed }
+            AlertDialog.Builder(this).setTitle("Choose GESITS")
+                .setItems(list.map { "${names[it.address]}\n${it.address}" }.toTypedArray()) { _, i -> pick(list[i], "ble", names[list[i].address]) }.show()
+        }, 8000)
+    }
+
+    private fun pick(d: BluetoothDevice, type: String, name: String? = null) {
+        settings.address = d.address
+        settings.deviceName = name ?: d.name ?: d.address
+        settings.linkType = type
+        pages.remove("home"); show("home")
+        if (Bike.running) { MidService.stop(this); ui.postDelayed({ MidService.start(this) }, 800) } else MidService.start(this)
+    }
+
+    private fun chooseBikeDialog() = AlertDialog.Builder(this).setTitle("How to connect?")
+        .setItems(arrayOf("Bluetooth Classic (paired, recommended)", "Bluetooth LE (scan for GESITS)")) { _, i -> if (i == 0) chooseClassic() else chooseBle() }
+        .show()
+
+    // ================================================================ HOME
+    private lateinit var connTitle: TextView
+    private lateinit var connSub: TextView
+    private lateinit var connBtn: android.widget.Button
+    private lateinit var alertCard: LinearLayout
+    private lateinit var alertText: TextView
+    private val live = HashMap<String, TextView>()
+    private lateinit var tripText: TextView
+
+    private fun homePage(): ScrollView {
+        val (sv, col) = Ui.page(this)
+        if (settings.address == null) {
+            val c = Ui.card(this, col, "SET UP YOUR BIKE", Ui.GREEN)
+            Ui.text(this, c, "1.  Ignition ON, then press the Bluetooth button on the left handlebar.\n" +
+                "2.  Choose how the phone connects. Classic is the usual way (pair the bike in Android settings first).", 14f)
+            Ui.primary(this, c, "Bluetooth Classic (paired)") { chooseClassic() }
+            Ui.secondary(this, c, "Bluetooth LE (scan for GESITS)") { chooseBle() }
+            Ui.text(this, c, "This app only talks Bluetooth: it has no internet access.", 12f, Ui.MUTED)
+        }
+        val cc = Ui.card(this, col)
+        connTitle = Ui.text(this, cc, "", 20f, bold = true)
+        connSub = Ui.text(this, cc, "", 13f, Ui.MUTED)
+        val r = Ui.row(this, cc)
+        connBtn = Ui.primary(this, r, "Connect", 2f) {
+            if (Bike.running) MidService.stop(this) else if (settings.address == null) chooseBikeDialog() else if (requireReady()) MidService.start(this)
+        }
+        Ui.secondary(this, r, "Change bike", 1f) { chooseBikeDialog() }
+
+        alertCard = Ui.card(this, col, "ATTENTION", Ui.RED)
+        alertText = Ui.text(this, alertCard, "", 14f)
+        alertCard.visibility = View.GONE
+
+        val lc = Ui.card(this, col, "LIVE")
+        var row = Ui.row(this, lc)
+        live["SOC"] = Ui.tile(this, row, "BATTERY", 26f); live["RANGE"] = Ui.tile(this, row, "RANGE", 26f)
+        row = Ui.row(this, lc)
+        live["PWR"] = Ui.tile(this, row, "POWER"); live["SPD"] = Ui.tile(this, row, "SPEED")
+        row = Ui.row(this, lc)
+        live["MODE"] = Ui.tile(this, row, "MODE", 18f); live["GEAR"] = Ui.tile(this, row, "GEAR", 18f); live["HEALTH"] = Ui.tile(this, row, "HEALTH", 18f)
+        row = Ui.row(this, lc)
+        live["TBAT"] = Ui.tile(this, row, "BATTERY °C", 18f); live["TMOT"] = Ui.tile(this, row, "MOTOR °C", 18f); live["TINV"] = Ui.tile(this, row, "INVERTER °C", 18f)
+
+        val q = Ui.row(this, col)
+        Ui.primary(this, q, "Speedometer", 1f) { startActivity(Intent(this, SpeedoActivity::class.java)) }
+        Ui.secondary(this, q, "Diagnosis", 1f) { startActivity(Intent(this, DiagnosisActivity::class.java)) }
+
+        val tc = Ui.card(this, col, "CURRENT TRIP")
+        tripText = Ui.text(this, tc, "", 15f)
+        Ui.secondary(this, tc, "Reset trip") {
+            synchronized(Bike.trip) { Bike.trip.reset(); settings.tripState = Bike.trip.save() }; toast("Trip reset")
+        }
+        return sv
+    }
+
+    private fun refreshHome() {
+        if (!::connTitle.isInitialized) return
+        val name = settings.deviceName?.let { "$it · ${if (settings.linkType == "ble") "Bluetooth LE" else "Bluetooth Classic"}" } ?: "No bike chosen yet"
+        connTitle.text = when {
+            Bike.connected -> "● Connected"
+            Bike.running -> "○ Connecting…"
+            else -> "○ Not connected"
+        }
+        connTitle.setTextColor(if (Bike.connected) Ui.GREEN else if (Bike.running) Ui.AMBER else Ui.MUTED)
+        connSub.text = name + (Bike.telemetry.raw["VER"]?.let { "\nMID version $it" } ?: "") +
+            (if (Bike.running && !Bike.connected) "\n" + Bike.status else "")
+        connBtn.text = if (Bike.running) "Disconnect" else "Connect"
+
+        val t = Bike.telemetry
+        val alerts = mutableListOf<String>()
+        if (t.errors.isNotEmpty()) alerts += "MID error: " + t.errors.joinToString()
+        t.f("SOC")?.let { if (it <= settings.socLow) alerts += "Battery low: ${it.toInt()}%" }
+        if (Bike.running && !getSystemService(android.os.PowerManager::class.java).isIgnoringBatteryOptimizations(packageName))
+            alerts += "The phone may stop the connection in the background. Tools → Keep connected."
+        alertCard.visibility = if (alerts.isEmpty()) View.GONE else View.VISIBLE
+        alertText.text = alerts.joinToString("\n")
+
+        fun v(k: String) = t.raw[k] ?: "--"
+        live["SOC"]!!.text = v("SOC") + "%"
+        live["RANGE"]!!.text = (Bike.rangeKm()?.let { String.format(Locale.US, "%.0f", it) } ?: "--") + " km"
+        val p = t.powerW
+        live["PWR"]!!.text = (p?.let { String.format(Locale.US, "%.1f", it / 1000f) } ?: "--") + " kW"
+        live["PWR"]!!.setTextColor(if (p != null && p < 0) Ui.GREEN else Ui.TEXT)
+        live["SPD"]!!.text = v("SPD") + " km/h"
+        live["MODE"]!!.text = t.mode ?: "--"
+        live["GEAR"]!!.text = when (t.gear) { "P" -> "Park"; "D" -> "Drive"; else -> "--" }
+        live["HEALTH"]!!.text = v("SOH") + "%"
+        live["TBAT"]!!.text = v("TBAT"); live["TMOT"]!!.text = v("TMOT"); live["TINV"]!!.text = v("TINV")
+        tripText.text = synchronized(Bike.trip) {
+            val tr = Bike.trip
+            String.format(Locale.US, "%.1f km · %.0f Wh · %s · %s", tr.km, tr.energyWh,
+                tr.whPerKm?.let { String.format(Locale.US, "%.0f Wh/km", it) } ?: "-- Wh/km",
+                tr.kmPerPercent?.let { String.format(Locale.US, "%.2f km per 1%%", it) } ?: "-- km per 1%")
+        }
+    }
+
+    // ================================================================ MID
     private lateinit var preview: ImageView
-    private lateinit var logView: TextView
+    private lateinit var previewInfo: TextView
     private lateinit var rangeInfo: TextView
-    private lateinit var bgInfo: TextView
+
+    private fun midPage(): ScrollView {
+        val (sv, col) = Ui.page(this)
+        val pc = Ui.card(this, col, "ON THE MID NOW")
+        preview = ImageView(this).apply { adjustViewBounds = true; scaleType = ImageView.ScaleType.FIT_CENTER }
+        pc.addView(preview, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        previewInfo = Ui.text(this, pc, "", 12f, Ui.MUTED)
+
+        val sc = Ui.card(this, col, "SHOW ON THE MID")
+        lateinit var pagesBox: LinearLayout
+        lateinit var pictureBox: LinearLayout
+        val mainMode = if (settings.screenMode in listOf("dashboard", "picture", "off")) settings.screenMode else "dashboard"
+        Ui.segmented(this, sc, listOf("dashboard" to "Live info", "picture" to "My picture", "off" to "Nothing"), mainMode) { m ->
+            settings.screenMode = m
+            pagesBox.visibility = if (m == "dashboard") View.VISIBLE else View.GONE
+            pictureBox.visibility = if (m == "picture") View.VISIBLE else View.GONE
+        }
+        pagesBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }.also { sc.addView(it) }
+        Ui.text(this, pagesBox, "Pages", 12f, Ui.MUTED)
+        Ui.segmented(this, pagesBox, listOf("auto" to "Auto", "main" to "Details", "trip" to "Trip", "big" to "Big", "rotate" to "Rotate"),
+            settings.dashStyle) { settings.dashStyle = it }
+        Ui.text(this, pagesBox, "Auto: big numbers while riding; details and trip when stopped.", 12f, Ui.MUTED)
+        pictureBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }.also { sc.addView(it) }
+        Ui.secondary(this, pictureBox, "Choose picture…") {
+            startActivityForResult(Intent(Intent.ACTION_GET_CONTENT).setType("image/*"), pickPicture)
+        }
+        pagesBox.visibility = if (mainMode == "dashboard") View.VISIBLE else View.GONE
+        pictureBox.visibility = if (mainMode == "picture") View.VISIBLE else View.GONE
+
+        val tc = Ui.card(this, col, "TEXT LINE (20 CHARACTERS PER STEP)")
+        val nav = Ui.input(this, tc, "e.g. Halo Gesits! Hati-hati di jalan", settings.navText)
+        Ui.secondary(this, tc, "Save text") {
+            settings.navText = nav.text.toString()
+            toast(Mid.splitNav(settings.navText).joinToString(" | ").ifEmpty { "Text cleared" })
+        }
+        Ui.switchRow(this, tc, "Show today's date when empty", "e.g. 31 Oktober 2026", settings.navDate) { settings.navDate = it }
+
+        val rc = Ui.card(this, col, "RANGE")
+        Ui.switchRow(this, rc, "Adaptive range on the MID", "Learned from your riding: km per 1% battery", settings.sendRange) { settings.sendRange = it }
+        rangeInfo = Ui.text(this, rc, "", 13f, Ui.MUTED)
+        val rr = Ui.row(this, rc)
+        Ui.secondary(this, rr, "Starting value", 1f) { askStartingValue() }
+        Ui.secondary(this, rr, "Forget learned", 1f, Ui.RED) {
+            AlertDialog.Builder(this).setTitle("Forget learned range?").setMessage("Learning starts again. Useful after a battery change.")
+                .setPositiveButton("Forget") { _, _ -> synchronized(Bike.range) { Bike.range.reset(); settings.rangeState = Bike.range.save() } }
+                .setNegativeButton("Cancel", null).show()
+        }
+
+        val cc = Ui.card(this, col, "CLOCK")
+        Ui.switchRow(this, cc, "Set the MID clock from this phone", "On connect and every minute", settings.syncTime) { settings.syncTime = it }
+
+        val adv = Ui.collapsible(this, col, "Advanced: position & calibration")
+        Ui.text(this, adv, "Send a grid, photograph the MID, and adjust the margins (pixels of the 320×128 picture) if the MID covers an edge.", 12f, Ui.MUTED)
+        val g = Ui.row(this, adv)
+        Ui.secondary(this, g, "Grid", 1f) { settings.screenMode = "grid"; toast("Grid goes to the MID in a few seconds") }
+        Ui.secondary(this, g, "Large grid", 1f) { settings.screenMode = "gridLarge"; toast("Large grid goes to the MID in a few seconds") }
+        val m = settings.margins
+        val mr = Ui.row(this, adv)
+        fun num(label: String, v: Int): android.widget.EditText {
+            val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+            mr.addView(box, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { setMargins(dp(2), 0, dp(2), 0) })
+            return Ui.number(this, box, label, v.toFloat())
+        }
+        val eL = num("Left", m.left); val eT = num("Top", m.top); val eR = num("Right", m.right); val eB = num("Bottom", m.bottom)
+        Ui.primary(this, adv, "Save position & show live info") {
+            fun v(e: android.widget.EditText, max: Int) = (e.text.toString().toFloatOrNull()?.toInt() ?: 0).coerceIn(0, max)
+            settings.margins = ScreenRenderer.Margins(v(eL, 280), v(eT, 100), v(eR, 280), v(eB, 100))
+            settings.screenMode = "dashboard"; pages.remove("mid"); show("mid"); toast("Saved")
+        }
+        return sv
+    }
+
+    private fun askStartingValue() {
+        val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(20), dp(8), dp(20), 0) }
+        val e = Ui.number(this, box, "km per 1% battery until enough is learned", settings.kmPerPercent)
+        AlertDialog.Builder(this).setTitle("Starting value").setView(box)
+            .setPositiveButton("Save") { _, _ ->
+                e.text.toString().toFloatOrNull()?.takeIf { it in 0.05f..5f }?.let {
+                    settings.kmPerPercent = it; synchronized(Bike.range) { Bike.range.priorKmPerPercent = it }
+                }
+            }.setNegativeButton("Cancel", null).show()
+    }
+
+    private fun refreshMid() {
+        if (!::preview.isInitialized) return
+        Bike.lastFrame?.let { if (preview.tag !== it) { preview.setImageBitmap(it); preview.tag = it } }
+        previewInfo.text = Bike.lastFrameInfo.ifEmpty { if (Bike.connected) "Waiting for the first picture…" else "Connect to the bike to send pictures" }
+        rangeInfo.text = synchronized(Bike.range) { Bike.range.describe() } +
+            (Bike.rangeKm()?.let { String.format(Locale.US, " → %.0f km now", it) } ?: "")
+    }
+
+    // ================================================================ TRIPS
+    private fun tripsPageView(): ScrollView {
+        val (sv, _) = Ui.page(this)
+        tripsPage = TripsPage(this, settings)
+        return sv
+    }
+
+    // ================================================================ TOOLS
     private lateinit var parkInfo: TextView
+    private lateinit var bgInfo: TextView
+    private lateinit var logView: TextView
+
+    private fun toolsPage(): ScrollView {
+        val (sv, col) = Ui.page(this)
+
+        val mc = Ui.card(this, col, "MAPS (OPENS GOOGLE MAPS)")
+        val dest = Ui.input(this, mc, "Destination, e.g. Monas Jakarta")
+        val mr = Ui.row(this, mc)
+        Ui.primary(this, mr, "Navigate", 1f) {
+            val q = Uri.encode(dest.text.toString().trim())
+            if (q.isEmpty()) toast("Type a destination first")
+            else openMaps(Uri.parse("google.navigation:q=$q&mode=l"), Uri.parse("geo:0,0?q=$q"))   // mode=l: two-wheeler
+        }
+        Ui.secondary(this, mr, "SPKLU near me", 1f) { openMaps(Uri.parse("geo:0,0?q=SPKLU"), null) }
+
+        val pk = Ui.card(this, col, "PARKING")
+        Ui.switchRow(this, pk, "Remember where I parked", "Uses phone GPS when you park or switch off. Stays on this phone.", settings.rememberParking) { b ->
+            settings.rememberParking = b
+            if (b && !Parking.hasPermission(this))
+                requestPermissions(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION), 2)
+        }
+        parkInfo = Ui.text(this, pk, "", 13f, Ui.MUTED)
+        Ui.secondary(this, pk, "Show parked bike in Maps") {
+            if (settings.parkTime == 0L) toast("No parked location saved yet")
+            else { val ll = "${settings.parkLat},${settings.parkLon}"; openMaps(Uri.parse("geo:$ll?q=$ll(Gesits)"), null) }
+        }
+
+        val al = Ui.card(this, col, "ALARMS")
+        Ui.switchRow(this, al, "Phone notifications", "Low battery, hot battery (>45°C) or motor (>85°C), battery health <75%, MID errors",
+            settings.alarmsOn) { settings.alarmsOn = it }
+        Ui.text(this, al, "Low battery below", 12f, Ui.MUTED)
+        Ui.segmented(this, al, listOf("10" to "10%", "15" to "15%", "20" to "20%", "30" to "30%"), settings.socLow.toInt().toString()) {
+            settings.socLow = it.toFloat()
+        }
+
+        val bg = Ui.card(this, col, "KEEP CONNECTED")
+        bgInfo = Ui.text(this, bg, "", 14f)
+        Ui.text(this, bg, "Some phones (Xiaomi, OPPO, vivo, Realme, Samsung) close Bluetooth apps in the background. " +
+            "Allow this app to run without battery restrictions; on Xiaomi/OPPO/vivo also turn on Autostart in App info.", 12f, Ui.MUTED)
+        val br = Ui.row(this, bg)
+        Ui.primary(this, br, "Allow background", 1f) {
+            try { startActivity(Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:$packageName"))) }
+            catch (_: Exception) { startActivity(Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)) }
+        }
+        Ui.secondary(this, br, "App info", 1f) {
+            startActivity(Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName")))
+        }
+        Ui.text(this, bg, "Stop automatically when the bike has been off for", 12f, Ui.MUTED)
+        Ui.segmented(this, bg, listOf("30" to "30 min", "60" to "1 h", "120" to "2 h", "0" to "Never"), settings.autoStopMin.toString()) {
+            settings.autoStopMin = it.toInt()
+        }
+
+        val pv = Ui.card(this, col, "PRIVACY & PERMISSIONS")
+        Ui.text(this, pv, "• No internet access: nothing ever leaves this phone.\n" +
+            "• Bluetooth: to talk to the bike.\n" +
+            "• Notifications: connection status and alarms.\n" +
+            "• Location: only if you turn on parking (and for BLE scans on Android 8–11).\n" +
+            "• Your rides, learned range and settings stay in the app's private storage and are not backed up.", 13f)
+        Ui.secondary(this, pv, "Delete all my data", color = Ui.RED) {
+            AlertDialog.Builder(this).setTitle("Delete all data?")
+                .setMessage("Rides, learned range, trip, parking location, chosen bike and settings will be erased.")
+                .setPositiveButton("Delete") { _, _ ->
+                    MidService.stop(this); RideStore.clear(this)
+                    getSharedPreferences("settings", MODE_PRIVATE).edit().clear().apply()
+                    deleteFile("picture.b64")
+                    synchronized(Bike.range) { Bike.range.reset() }; synchronized(Bike.trip) { Bike.trip.clear() }
+                    recreate()
+                }.setNegativeButton("Cancel", null).show()
+        }
+
+        val adv = Ui.collapsible(this, col, "Advanced: console & log")
+        Ui.text(this, adv, "Send your own AT command, e.g. AT+SPD?. Queries ending in ? only read. Odometer writes are blocked.", 12f, Ui.MUTED)
+        val cmd = Ui.input(this, adv, "AT+VER?")
+        val cr = Ui.row(this, adv)
+        Ui.secondary(this, cr, "Send", 1f) {
+            val c = cmd.text.toString().trim()
+            when {
+                !Bike.connected -> toast("Connect to the bike first")
+                c.isEmpty() -> {}
+                c.uppercase().startsWith("AT+ODO=") -> toast("Odometer writes are blocked in this app")
+                else -> Bike.outbox.add(c + "\r\n")
+            }
+        }
+        Ui.secondary(this, cr, "Probe", 1f) {
+            if (!Bike.connected) toast("Connect to the bike first")
+            else { Mid.PROBE_KEYS.forEach { Bike.outbox.add(Mid.query(it)) }; toast("Sent ${Mid.PROBE_KEYS.size} read-only queries") }
+        }
+        logView = Ui.text(this, adv, "", 11f, Ui.MUTED, mono = true)
+        Ui.secondary(this, adv, "Copy log") {
+            val text = synchronized(Bike.log) { Bike.log.joinToString("\n") }
+            getSystemService(android.content.ClipboardManager::class.java)
+                .setPrimaryClip(android.content.ClipData.newPlainText("Gesits MID log", text))
+            toast("Log copied")
+        }
+        Ui.text(this, col, "Gesits MID · version " + try { packageManager.getPackageInfo(packageName, 0).versionName } catch (_: Exception) { "?" },
+            11f, Ui.MUTED).gravity = Gravity.CENTER
+        return sv
+    }
+
+    private fun refreshTools() {
+        if (!::parkInfo.isInitialized) return
+        parkInfo.text = if (settings.parkTime == 0L) "No parked location saved" else
+            "Saved " + SimpleDateFormat("EEE d MMM, HH:mm", Locale("id", "ID")).format(Date(settings.parkTime))
+        val ok = getSystemService(android.os.PowerManager::class.java).isIgnoringBatteryOptimizations(packageName)
+        bgInfo.text = if (ok) "✓ Battery restriction is off" else "⚠ Battery restriction is ON - the phone may cut the connection"
+        bgInfo.setTextColor(if (ok) Ui.GREEN else Ui.AMBER)
+        logView.text = synchronized(Bike.log) { Bike.log.toList().takeLast(40).joinToString("\n") }
+    }
 
     private fun openMaps(primary: Uri, fallback: Uri?) {
         try { startActivity(Intent(Intent.ACTION_VIEW, primary)) }
@@ -56,424 +505,44 @@ class MainActivity : Activity() {
         }
     }
 
-    private companion object {
-        val DASH_STYLES = listOf(
-            "auto" to "Auto: big numbers while riding, details + trip when stopped",
-            "main" to "Always details", "trip" to "Always trip", "big" to "Always big numbers",
-            "rotate" to "Rotate all three",
-        )
-        val SCREEN_MODES = listOf(
-            "dashboard" to "My dashboard (live data)", "picture" to "My picture",
-            "grid" to "Calibration grid (320x128 map area)",
-            "gridLarge" to "Large grid (350x300: whole reachable area)", "off" to "Off (don't send pictures)",
-        )
-    }
-    private val pickPicture = 42
-
-    private val tick = object : Runnable {
-        override fun run() { refresh(); ui.postDelayed(this, 500) }
+    // ================================================================ refresh, results
+    private fun refresh() {
+        statusChip.text = if (Bike.connected) "● Connected" else if (Bike.running) "○ Connecting" else "○ Offline"
+        statusChip.setTextColor(if (Bike.connected) Ui.GREEN else if (Bike.running) Ui.AMBER else Ui.MUTED)
+        statusChip.background = Ui.rounded(Ui.CARD2, dp(14).toFloat())
+        when (current) { "home" -> refreshHome(); "mid" -> refreshMid(); "tools" -> refreshTools() }
     }
 
-    override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
-        settings = Settings(this)
-        Bike.loadRange(settings)
-        Bike.loadTrip(settings)
-        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        setContentView(buildUi())
-        if (intent?.getBooleanExtra("demo", false) == true) {
-            Demo.load(this)
-            Bike.lastFrame = synchronized(Bike.trip) { ScreenRenderer.render(Bike.telemetry, Bike.rangeKm(), settings.margins) }
-            when (intent.getStringExtra("open")) {
-                "stats" -> startActivity(Intent(this, StatsActivity::class.java))
-                "diagnosis" -> startActivity(Intent(this, DiagnosisActivity::class.java))
-                "speedo" -> startActivity(Intent(this, SpeedoActivity::class.java))
-            }
-            return
-        }
-        askPermissions()
-    }
-
-    override fun onResume() { super.onResume(); ui.post(tick) }
-    override fun onPause() { super.onPause(); ui.removeCallbacks(tick) }
-
-    // ------------------------------------------------------------------ permissions
-    private fun neededPermissions(): Array<String> = when {
-        Build.VERSION.SDK_INT >= 33 -> arrayOf(Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.POST_NOTIFICATIONS)
-        Build.VERSION.SDK_INT >= 31 -> arrayOf(Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_SCAN)
-        else -> arrayOf(Manifest.permission.ACCESS_FINE_LOCATION)
-    }
-
-    private fun hasPermissions() = neededPermissions().all { checkSelfPermission(it) == PackageManager.PERMISSION_GRANTED }
-
-    private fun askPermissions() {
-        val missing = neededPermissions().filter { checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED }
-        if (missing.isNotEmpty()) requestPermissions(missing.toTypedArray(), 1)
-    }
-
-    private fun requireReady(): Boolean {
-        if (!hasPermissions()) { askPermissions(); toast("Allow Bluetooth permission first"); return false }
-        val adapter = getSystemService(BluetoothManager::class.java)?.adapter
-        if (adapter == null || !adapter.isEnabled) { toast("Turn Bluetooth on first"); return false }
-        return true
-    }
-
-    // ------------------------------------------------------------------ choosing the bike
-    private fun chooseClassic() {
-        if (!requireReady()) return
-        val devices = getSystemService(BluetoothManager::class.java).adapter.bondedDevices.toList()
-            .sortedByDescending { (it.name ?: "").contains("GESITS", ignoreCase = true) }
-        if (devices.isEmpty()) { toast("No paired devices. Pair the bike in Android Bluetooth settings first."); return }
-        val labels = devices.map { "${it.name ?: "(no name)"}\n${it.address}" }.toTypedArray()
-        AlertDialog.Builder(this).setTitle("Paired devices (Classic)")
-            .setItems(labels) { _, i -> pick(devices[i], "classic") }.show()
-    }
-
-    private fun chooseBle() {
-        if (!requireReady()) return
-        val scanner = getSystemService(BluetoothManager::class.java).adapter.bluetoothLeScanner ?: run { toast("BLE not available"); return }
-        val found = LinkedHashMap<String, BluetoothDevice>()
-        val names = HashMap<String, String>()
-        val cb = object : ScanCallback() {
-            override fun onScanResult(callbackType: Int, result: ScanResult) {
-                val d = result.device
-                val n = result.scanRecord?.deviceName ?: d.name ?: return
-                found[d.address] = d; names[d.address] = n
-            }
-        }
-        toast("Scanning BLE for 8 s...")
-        scanner.startScan(cb)
-        ui.postDelayed({
-            try { scanner.stopScan(cb) } catch (_: Exception) {}
-            val list = found.values.sortedByDescending { names[it.address] == Mid.BLE_NAME }
-            if (list.isEmpty()) { toast("Nothing found. Ignition on? MID Bluetooth on?"); return@postDelayed }
-            val labels = list.map { "${names[it.address]}\n${it.address}" }.toTypedArray()
-            AlertDialog.Builder(this).setTitle("BLE devices (pick GESITS)")
-                .setItems(labels) { _, i -> pick(list[i], "ble", names[list[i].address]) }.show()
-        }, 8000)
-    }
-
-    private fun pick(d: BluetoothDevice, type: String, name: String? = null) {
-        settings.address = d.address
-        settings.deviceName = name ?: d.name ?: d.address
-        settings.linkType = type
-        toast("Saved: ${settings.deviceName} (${if (type == "ble") "BLE" else "Classic"})")
-        if (Bike.running) { MidService.stop(this); ui.postDelayed({ MidService.start(this) }, 800) }
-    }
-
-    // ------------------------------------------------------------------ picture
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode == pickPicture && resultCode == RESULT_OK) data?.data?.let { loadPicture(it) }
+        val uri = data?.data ?: return
+        if (resultCode != RESULT_OK) return
+        when (requestCode) {
+            pickPicture -> loadPicture(uri)
+            TripsPage.EXPORT_REQ -> tripsPage?.export(uri)
+        }
     }
 
     private fun loadPicture(uri: Uri) {
         try {
             val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
             contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
-            var sample = 1
+            if (bounds.outWidth <= 0 || bounds.outHeight <= 0) { toast("That file is not a picture"); return }
+            var sample = 1   // decode small: never load a full-size photo into memory
             while (bounds.outWidth / (sample * 2) >= Mid.FRAME_W * 2 && bounds.outHeight / (sample * 2) >= Mid.FRAME_H * 2) sample *= 2
             val src = contentResolver.openInputStream(uri)?.use {
                 BitmapFactory.decodeStream(it, null, BitmapFactory.Options().apply { inSampleSize = sample })
             } ?: run { toast("Could not read that picture"); return }
             val frame = ScreenRenderer.cropToFrame(src)
+            src.recycle()
             val b64 = ScreenRenderer.toMapsBase64(frame) ?: run { toast("Picture too detailed for the MID; try a simpler one"); return }
             openFileOutput("picture.b64", MODE_PRIVATE).use { it.write(b64.toByteArray()) }
             Bike.lastFrame = frame
             settings.screenMode = "picture"
-            toast("Picture ready (${b64.length} chars). It will be shown on the MID.")
-            recreateUiState()
+            pages.remove("mid"); show("mid")
+            toast("Picture ready - it will be shown on the MID")
         } catch (e: Exception) {
             toast("Picture error: ${e.message}")
         }
-    }
-
-    // ------------------------------------------------------------------ UI
-    private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
-    private fun toast(s: String) = Toast.makeText(this, s, Toast.LENGTH_LONG).show()
-
-    private fun header(root: LinearLayout, s: String) = root.addView(TextView(this).apply {
-        text = s; textSize = 18f; setTypeface(typeface, Typeface.BOLD); setTextColor(Color.rgb(60, 200, 110))
-        setPadding(0, dp(18), 0, dp(6))
-    })
-
-    private fun button(root: ViewGroup, s: String, onClick: () -> Unit) = Button(this).apply {
-        text = s; isAllCaps = false; setOnClickListener { onClick() }; root.addView(this)
-    }
-
-    private lateinit var modeGroup: RadioGroup
-
-    private fun buildUi(): View {
-        val root = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(16), dp(16), dp(16), dp(32))
-            setBackgroundColor(Color.rgb(12, 14, 18))
-        }
-        root.addView(TextView(this).apply {
-            text = "Gesits MID"; textSize = 26f; setTypeface(typeface, Typeface.BOLD); setTextColor(Color.WHITE)
-        })
-        root.addView(TextView(this).apply {
-            text = "Bluetooth only - this app has no internet permission."; setTextColor(Color.GRAY)
-        })
-
-        val nav1 = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        button(nav1, "Speedometer") { startActivity(Intent(this, SpeedoActivity::class.java)) }
-        button(nav1, "Stats") { startActivity(Intent(this, StatsActivity::class.java)) }
-        button(nav1, "Diagnosis") { startActivity(Intent(this, DiagnosisActivity::class.java)) }
-        root.addView(nav1)
-
-        header(root, "Bike")
-        status = TextView(this).apply { setTextColor(Color.WHITE) }
-        root.addView(status)
-        button(root, "Choose bike - Bluetooth Classic (paired)") { chooseClassic() }
-        button(root, "Choose bike - Bluetooth LE (scan for GESITS)") { chooseBle() }
-        val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        button(row, "Connect") { if (requireReady()) MidService.start(this) }
-        button(row, "Disconnect") { MidService.stop(this) }
-        root.addView(row)
-
-        header(root, "Live data")
-        live = TextView(this).apply { typeface = Typeface.MONOSPACE; setTextColor(Color.WHITE); textSize = 15f }
-        root.addView(live)
-
-        header(root, "MID screen (map area)")
-        modeGroup = RadioGroup(this)
-        SCREEN_MODES.forEachIndexed { i, (key, label) ->
-            modeGroup.addView(RadioButton(this).apply { id = 100 + i; text = label; tag = key; setTextColor(Color.WHITE) })
-        }
-        modeGroup.setOnCheckedChangeListener { g, id -> settings.screenMode = g.findViewById<View>(id).tag as String }
-        root.addView(modeGroup)
-        root.addView(TextView(this).apply { text = "Dashboard pages"; setTextColor(Color.GRAY); setPadding(0, dp(8), 0, 0) })
-        val styleGroup = RadioGroup(this)
-        DASH_STYLES.forEachIndexed { i, (key, label) ->
-            styleGroup.addView(RadioButton(this).apply { id = 200 + i; text = label; tag = key; setTextColor(Color.WHITE) })
-        }
-        styleGroup.check(200 + DASH_STYLES.map { it.first }.indexOf(settings.dashStyle).coerceAtLeast(0))
-        styleGroup.setOnCheckedChangeListener { g, id -> settings.dashStyle = g.findViewById<View>(id).tag as String }
-        root.addView(styleGroup)
-        button(root, "Reset trip") {
-            synchronized(Bike.trip) { Bike.trip.reset(); settings.tripState = Bike.trip.save() }
-            toast("Trip reset")
-        }
-        button(root, "Choose picture...") {
-            startActivityForResult(Intent(Intent.ACTION_GET_CONTENT).setType("image/*"), pickPicture)
-        }
-        preview = ImageView(this).apply { adjustViewBounds = true; setPadding(0, dp(8), 0, dp(4)) }
-        root.addView(preview)
-        frameInfo = TextView(this).apply { setTextColor(Color.GRAY) }
-        root.addView(frameInfo)
-
-        header(root, "Dashboard position on the MID")
-        root.addView(TextView(this).apply {
-            text = "The MID's own widgets cover part of the picture. These margins (in pixels of the " +
-                "320x128 picture) keep the dashboard in the free area. Send the calibration grid, " +
-                "take a photo, and read off which numbers are still visible."
-            setTextColor(Color.GRAY)
-        })
-        val m = settings.margins
-        val grid = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        fun num(label: String, v: Int): EditText {
-            val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-            col.addView(TextView(this).apply { text = label; setTextColor(Color.GRAY) })
-            val e = EditText(this).apply { setText(v.toString()); setTextColor(Color.WHITE); inputType = InputType.TYPE_CLASS_NUMBER; minEms = 3 }
-            col.addView(e); grid.addView(col, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-            return e
-        }
-        val eL = num("Left", m.left); val eT = num("Top", m.top); val eR = num("Right", m.right); val eB = num("Bottom", m.bottom)
-        root.addView(grid)
-        val posRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        button(posRow, "Save position") {
-            fun v(e: EditText, max: Int) = (e.text.toString().toIntOrNull() ?: 0).coerceIn(0, max)
-            settings.margins = ScreenRenderer.Margins(v(eL, 280), v(eT, 100), v(eR, 280), v(eB, 100))
-            settings.screenMode = "dashboard"; recreateUiState(); toast("Saved - shown on the next picture")
-        }
-        button(posRow, "Send calibration grid") { settings.screenMode = "grid"; recreateUiState(); toast("The grid goes to the MID within a few seconds") }
-        root.addView(posRow)
-
-        header(root, "MID text line (20 characters per step)")
-        val nav = EditText(this).apply {
-            setText(settings.navText); hint = "e.g. Halo Gesits! Hati-hati di jalan"
-            setTextColor(Color.WHITE); setHintTextColor(Color.GRAY); inputType = InputType.TYPE_CLASS_TEXT
-        }
-        root.addView(nav)
-        root.addView(CheckBox(this).apply {
-            text = "When empty, show today's date (e.g. 31 Oktober 2026)"; isChecked = settings.navDate; setTextColor(Color.WHITE)
-            setOnCheckedChangeListener { _, b -> settings.navDate = b }
-        })
-        button(root, "Save text (rotates every 5 s)") {
-            settings.navText = nav.text.toString(); toast("Saved: " + Mid.splitNav(settings.navText).joinToString(" | "))
-        }
-
-        header(root, "Options")
-        root.addView(CheckBox(this).apply {
-            text = "Set MID clock from phone (on connect + every minute)"; isChecked = settings.syncTime; setTextColor(Color.WHITE)
-            setOnCheckedChangeListener { _, b -> settings.syncTime = b }
-        })
-
-        header(root, "Adaptive range")
-        root.addView(TextView(this).apply {
-            text = "Learns your real km per 1% battery from the odometer while you ride (last ~60% of battery " +
-                "used) and shows battery % x that on the MID's range."
-            setTextColor(Color.GRAY)
-        })
-        rangeInfo = TextView(this).apply { setTextColor(Color.WHITE); setPadding(0, dp(6), 0, dp(6)) }
-        root.addView(rangeInfo)
-        root.addView(CheckBox(this).apply {
-            text = "Show adaptive range on MID (AT+TRIP)"; isChecked = settings.sendRange; setTextColor(Color.WHITE)
-            setOnCheckedChangeListener { _, b -> settings.sendRange = b }
-        })
-        val kmpp = EditText(this).apply {
-            setText(String.format(Locale.US, "%.2f", settings.kmPerPercent)); setTextColor(Color.WHITE)
-            inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
-        }
-        root.addView(TextView(this).apply { text = "Starting value until enough is learned: km per 1% battery"; setTextColor(Color.GRAY) })
-        root.addView(kmpp)
-        val rangeRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        button(rangeRow, "Save starting value") {
-            kmpp.text.toString().toFloatOrNull()?.takeIf { it > 0f }?.let {
-                settings.kmPerPercent = it; synchronized(Bike.range) { Bike.range.priorKmPerPercent = it }; toast("Saved")
-            }
-        }
-        button(rangeRow, "Forget learned range") {
-            AlertDialog.Builder(this).setTitle("Forget learned range?")
-                .setMessage("Starts learning again from the starting value. Useful after a battery change.")
-                .setPositiveButton("Forget") { _, _ ->
-                    synchronized(Bike.range) { Bike.range.reset(); settings.rangeState = Bike.range.save() }
-                    toast("Range learning reset")
-                }.setNegativeButton("Cancel", null).show()
-        }
-        root.addView(rangeRow)
-
-        header(root, "Console (send your own commands)")
-        root.addView(TextView(this).apply {
-            text = "Type an AT command, e.g. AT+SPD? - replies appear in the Log below. Queries ending " +
-                "in ? only read. Be careful with commands that set things (=): only send ones you understand."
-            setTextColor(Color.GRAY)
-        })
-        val cmdIn = EditText(this).apply {
-            hint = "AT+VER?"; setTextColor(Color.WHITE); setHintTextColor(Color.GRAY)
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS
-        }
-        root.addView(cmdIn)
-        val consoleRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        button(consoleRow, "Send") {
-            val c = cmdIn.text.toString().trim()
-            when {
-                !Bike.connected -> toast("Connect to the bike first")
-                c.isEmpty() -> {}
-                c.uppercase().startsWith("AT+ODO=") -> toast("Odometer writes are blocked in this app")
-                else -> Bike.outbox.add(c + "\r\n")
-            }
-        }
-        button(consoleRow, "Probe hidden features") {
-            if (!Bike.connected) { toast("Connect to the bike first"); return@button }
-            Mid.PROBE_KEYS.forEach { Bike.outbox.add(Mid.query(it)) }
-            toast("Sent ${Mid.PROBE_KEYS.size} read-only queries - watch the Log, then send me a screenshot")
-        }
-        root.addView(consoleRow)
-
-        header(root, "Maps (opens Google Maps - this app stays offline)")
-        val dest = EditText(this).apply {
-            hint = "Destination, e.g. Monas Jakarta"; setTextColor(Color.WHITE); setHintTextColor(Color.GRAY)
-            inputType = InputType.TYPE_CLASS_TEXT
-        }
-        root.addView(dest)
-        val mapsRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        button(mapsRow, "Navigate") {
-            val q = Uri.encode(dest.text.toString().trim())
-            if (q.isEmpty()) { toast("Type a destination first"); return@button }
-            openMaps(Uri.parse("google.navigation:q=$q&mode=l"), Uri.parse("geo:0,0?q=$q"))   // mode=l: two-wheeler
-        }
-        button(mapsRow, "SPKLU near me") { openMaps(Uri.parse("geo:0,0?q=SPKLU"), null) }
-        root.addView(mapsRow)
-        root.addView(CheckBox(this).apply {
-            text = "Remember where I parked (uses phone GPS when you park or switch off; stays on this phone)"
-            isChecked = settings.rememberParking; setTextColor(Color.WHITE)
-            setOnCheckedChangeListener { _, b ->
-                settings.rememberParking = b
-                if (b && !Parking.hasPermission(this@MainActivity))
-                    requestPermissions(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION), 2)
-            }
-        })
-        parkInfo = TextView(this).apply { setTextColor(Color.GRAY) }
-        root.addView(parkInfo)
-        button(root, "Show parked bike in Maps") {
-            if (settings.parkTime == 0L) { toast("No parked location saved yet"); return@button }
-            val ll = "${settings.parkLat},${settings.parkLon}"
-            openMaps(Uri.parse("geo:$ll?q=$ll(Gesits)"), null)
-        }
-
-        header(root, "Keep connected in the background")
-        bgInfo = TextView(this).apply { setTextColor(Color.WHITE) }
-        root.addView(bgInfo)
-        root.addView(TextView(this).apply {
-            text = "Some phones (Xiaomi, OPPO, vivo, Realme, Samsung...) close Bluetooth apps in the " +
-                "background. Allow this app to run without battery restrictions. On Xiaomi/OPPO/vivo also " +
-                "turn on Autostart in App info and lock the app in the recent-apps list."
-            setTextColor(Color.GRAY)
-        })
-        val bgRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        button(bgRow, "Allow background") {
-            try {
-                startActivity(Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:$packageName")))
-            } catch (_: Exception) {
-                startActivity(Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
-            }
-        }
-        button(bgRow, "App info") {
-            startActivity(Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName")))
-        }
-        root.addView(bgRow)
-
-        header(root, "Log")
-        button(root, "Copy whole log") {
-            val text = synchronized(Bike.log) { Bike.log.joinToString("\n") }
-            getSystemService(android.content.ClipboardManager::class.java)
-                .setPrimaryClip(android.content.ClipData.newPlainText("Gesits MID log", text))
-            toast("Log copied - paste it in the chat")
-        }
-        logView = TextView(this).apply { typeface = Typeface.MONOSPACE; setTextColor(Color.GRAY); textSize = 11f }
-        root.addView(logView)
-
-        recreateUiState()
-        return ScrollView(this).apply { addView(root); setBackgroundColor(Color.rgb(12, 14, 18)) }
-    }
-
-    private fun recreateUiState() {
-        val idx = SCREEN_MODES.map { it.first }.indexOf(settings.screenMode).coerceAtLeast(0)
-        modeGroup.check(100 + idx)
-    }
-
-    private fun refresh() {
-        val name = settings.deviceName?.let { "$it (${if (settings.linkType == "ble") "BLE" else "Classic"})" } ?: "no bike chosen"
-        status.text = "${Bike.status}\nBike: $name" + (Bike.telemetry.raw["VER"]?.let { "\nMID version: $it" } ?: "")
-        val t = Bike.telemetry
-        fun v(k: String, unit: String = "") = t.raw[k]?.let { "$it$unit" } ?: "--"
-        val p = t.powerW?.let { String.format(Locale.US, "%.0f W", it) } ?: "--"
-        live.text = buildString {
-            appendLine("Speed     ${v("SPD", " km/h")}")
-            appendLine("Battery   ${v("SOC", " %")}   health ${v("SOH", " %")}")
-            appendLine("Power     $p   (${v("VBAT", " V")}, ${v("IBAT", " A")})")
-            appendLine("Mode      ${t.mode ?: "--"}   gear ${t.gear ?: "--"}")
-            appendLine("Range     ${Bike.rangeKm()?.let { String.format(Locale.US, "%.0f km", it) } ?: "--"}")
-            appendLine("ODO       ${v("ODO", " km")}")
-            synchronized(Bike.trip) {
-                val tr = Bike.trip
-                appendLine(String.format(Locale.US, "Trip      %.1f km, %.0f Wh, %s, %s", tr.km, tr.energyWh,
-                    tr.whPerKm?.let { String.format(Locale.US, "%.0f Wh/km", it) } ?: "-- Wh/km",
-                    tr.kmPerPercent?.let { String.format(Locale.US, "%.2f km/1%%", it) } ?: "-- km/1%"))
-            }
-            appendLine("Temp      bat ${v("TBAT")}  motor ${v("TMOT")}  inv ${v("TINV")} °C")
-            append("Errors    ${if (t.errorMask == null) "--" else t.errors.ifEmpty { listOf("none") }.joinToString()}")
-        }
-        Bike.lastFrame?.let { preview.setImageBitmap(it) }
-        frameInfo.text = Bike.lastFrameInfo
-        rangeInfo.text = synchronized(Bike.range) { Bike.range.describe() }
-        parkInfo.text = if (settings.parkTime == 0L) "Parked location: none saved" else
-            "Parked location saved " + java.text.SimpleDateFormat("EEE d MMM, HH:mm", Locale("id", "ID")).format(java.util.Date(settings.parkTime))
-        val pm = getSystemService(android.os.PowerManager::class.java)
-        bgInfo.text = if (pm.isIgnoringBatteryOptimizations(packageName)) "Battery restriction: off (good)"
-                      else "Battery restriction: ON - the phone may cut the connection in the background"
-        logView.text = synchronized(Bike.log) { Bike.log.toList().takeLast(60).joinToString("\n") }
     }
 }

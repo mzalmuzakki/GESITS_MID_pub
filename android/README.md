@@ -3,6 +3,15 @@
 Your own small app for the Gesits G1 dashboard (MID). Every line is in this folder, and
 GitHub Actions builds it, so you know exactly what you install.
 
+## Layout
+One screen with four tabs at the bottom:
+* **Home:** connect button and status, live values, alerts, Speedometer and Diagnosis buttons, current trip.
+* **MID:** preview of what the MID shows; what to show (live info, your picture or nothing), dashboard
+  pages, text line, adaptive range, clock. Position and calibration are under *Advanced*.
+* **Trips:** this week vs your target, totals, savings vs petrol, last 7 days, records, history, CSV export.
+* **Tools:** maps and parking, alarms, keep-connected settings, privacy and permissions, and
+  (under *Advanced*) the console and log.
+
 ## What it does
 * Connects to the bike over **Bluetooth Classic** (paired, the usual way) **or Bluetooth LE** (`GESITS`).
 * Shows live data: speed, battery, health, power/regen, voltage and current, mode, gear, odometer,
