@@ -73,11 +73,17 @@ One screen with four tabs at the bottom:
    app tap **Choose bike - Bluetooth Classic**. Or use **Bluetooth LE** to scan for `GESITS`.
 5. **Connect**. Close other Gesits apps first; the MID may accept only one connection.
 
-**Signing.** No signing key is stored in this repo. By default GitHub signs with an Android debug key
-that it keeps in its build cache, so new builds install over old ones. If that cache expires (after 7 days
-without builds), uninstall the old app before installing a new build. For a permanent key, add two
-repository secrets, `GESITS_KEYSTORE_B64` (a `.jks` file as base64) and `GESITS_KEYSTORE_PASSWORD`;
-the workflow then signs with your key.
+**Signing (one-time setup, so updates always install over the old version):**
+1. On your laptop, in the repo folder: `pip install cryptography`, then `python scripts/make_signing_key.py`.
+2. It creates `gesits-mid-release.p12` (your key: **keep a backup**, never share or commit it) and
+   `gesits-mid-github-secrets.txt`.
+3. On GitHub: **GESITS_MID_pub → Settings → Secrets and variables → Actions → New repository secret**,
+   and add the two values from that text file: `GESITS_KEYSTORE_PASSWORD` and `GESITS_KEYSTORE_B64`.
+   Then delete the text file.
+4. Every build from then on is signed with that key; the release notes say "permanent CAKRA Labs key".
+   Uninstall the old app **once** before installing the first permanently-signed version.
+
+Without the secrets, builds use a temporary test key and may need the old app uninstalled first.
 
 ## Build it yourself
 `gradle -p android assembleRelease` with JDK 17 and the Android SDK (compileSdk 34). Or push a

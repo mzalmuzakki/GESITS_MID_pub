@@ -31,6 +31,7 @@ android {
         if (ownKey != null) {
             create("own") {
                 storeFile = ownKey
+                storeType = "pkcs12"   // made by scripts/make_signing_key.py
                 storePassword = System.getenv("GESITS_KEYSTORE_PASSWORD")
                 keyAlias = System.getenv("GESITS_KEY_ALIAS") ?: "gesits-mid"
                 keyPassword = System.getenv("GESITS_KEYSTORE_PASSWORD")

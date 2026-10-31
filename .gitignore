@@ -9,3 +9,9 @@ android/local.properties
 *.iml
 .idea/
 android/keystore/
+
+# Signing keys must never be committed
+*.p12
+*.jks
+*.keystore
+gesits-mid-github-secrets.txt

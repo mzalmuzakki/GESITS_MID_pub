@@ -47,11 +47,13 @@ jobs:
           KS_B64: ${{ secrets.GESITS_KEYSTORE_B64 }}
         run: |
           if [ -n "$KS_B64" ]; then
-            echo "$KS_B64" | base64 -d > "$RUNNER_TEMP/own.jks"
-            echo "GESITS_KEYSTORE=$RUNNER_TEMP/own.jks" >> "$GITHUB_ENV"
+            echo "$KS_B64" | base64 -d > "$RUNNER_TEMP/own.p12"
+            echo "GESITS_KEYSTORE=$RUNNER_TEMP/own.p12" >> "$GITHUB_ENV"
+            echo "SIGNED_WITH=permanent CAKRA Labs key - installs over earlier permanent-key versions" >> "$GITHUB_ENV"
             echo "Signing with own key"
           else
-            echo "No GESITS_KEYSTORE_B64 secret: signing with the cached debug key"
+            echo "SIGNED_WITH=TEST key (no permanent key set up) - may need uninstalling the old app first" >> "$GITHUB_ENV"
+            echo "No GESITS_KEYSTORE_B64 secret: signing with a temporary debug key"
           fi
 
       - name: Build signed APK
@@ -85,7 +87,8 @@ jobs:
             --title "Gesits MID ${{ steps.apk.outputs.version }} (build ${{ github.run_number }})" \
             --notes "Built by GitHub Actions from commit ${{ github.sha }}.
           SHA-256: ${{ steps.apk.outputs.sha }}
-          Permissions: Bluetooth, foreground service, notifications. No internet."
+          Signed with: ${{ env.SIGNED_WITH }}
+          Permissions: Bluetooth, notifications, foreground service; location only if parking is turned on. No internet."
 
   # Screenshots + memory use from an Android 14 emulator, published on the "android-screenshots" release.
   screenshots:
