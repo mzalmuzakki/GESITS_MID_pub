@@ -69,7 +69,7 @@ class Telemetry {
     val errorMask: Int? get() = raw["ERR"]?.trim('"', ' ')?.removePrefix("0x")?.removePrefix("0X")?.toIntOrNull(16)
     val errors: List<String> get() {
         val m = errorMask ?: return emptyList()
-        return (0 until 16).filter { (m shr it) and 1 == 1 }.map { Mid.ERROR_BITS[it] ?: "Unknown error bit $it" }
+        return (0 until 16).filter { ((m shr it) and 1) == 1 }.map { Mid.ERROR_BITS[it] ?: "Unknown error bit $it" }
     }
     fun rangeKm(kmPerPercent: Float): Float? = f("SOC")?.let { it * kmPerPercent }
 }
