@@ -202,6 +202,25 @@ object ScreenRenderer {
         return bmp
     }
 
+    /**
+     * Large map of the whole area a picture can reach (350 x 300): a checkerboard of 50 x 50 cells
+     * labelled A1..F7 (row letter, column number). Flat colours keep it readable under the
+     * 7000-char limit. One photo then shows which cells are free, covered or off-screen.
+     */
+    fun largeGrid(): Bitmap {
+        val w = 350; val h = 300
+        val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        val c = Canvas(bmp)
+        val fill = Paint()
+        val label = paint(18f, Color.WHITE).apply { textAlign = Paint.Align.CENTER }
+        for (x in 0 until w step 50) for (y in 0 until h step 50) {
+            fill.color = if ((x / 50 + y / 50) % 2 == 0) Color.rgb(0, 70, 160) else Color.rgb(150, 30, 30)
+            c.drawRect(x.toFloat(), y.toFloat(), x + 50f, y + 50f, fill)
+            c.drawText("${'A' + y / 50}${x / 50 + 1}", x + 25f, y + 32f, label)
+        }
+        return bmp
+    }
+
     /** Crop-to-fill any picture to the MID frame size. */
     fun cropToFrame(src: Bitmap): Bitmap {
         val ratio = Mid.FRAME_W.toFloat() / Mid.FRAME_H

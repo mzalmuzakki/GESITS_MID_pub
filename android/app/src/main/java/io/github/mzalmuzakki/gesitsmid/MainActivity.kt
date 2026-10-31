@@ -55,7 +55,8 @@ class MainActivity : Activity() {
         )
         val SCREEN_MODES = listOf(
             "dashboard" to "My dashboard (live data)", "picture" to "My picture",
-            "grid" to "Calibration grid", "off" to "Off (don't send pictures)",
+            "grid" to "Calibration grid (320x128 map area)",
+            "gridLarge" to "Large grid (350x300: whole reachable area)", "off" to "Off (don't send pictures)",
         )
     }
     private val pickPicture = 42

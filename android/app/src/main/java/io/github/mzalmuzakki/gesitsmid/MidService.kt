@@ -192,6 +192,7 @@ class MidService : Service() {
             ScreenRenderer.toMapsBase64(bmp)
         }
         "grid" -> ScreenRenderer.calibrationGrid().let { Bike.lastFrame = it; ScreenRenderer.toMapsBase64(it) }
+        "gridLarge" -> ScreenRenderer.largeGrid().let { Bike.lastFrame = it; ScreenRenderer.toMapsBase64(it) }
         "picture" -> try { openFileInput("picture.b64").bufferedReader().readText() } catch (_: Exception) { null }
         else -> null
     }
