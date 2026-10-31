@@ -13,7 +13,9 @@ read live data, set the clock, and put your own text and pictures on the stock M
   * From a laptop/Pi: `python -m gesits screen ble://GESITS` (or `bt://…`)
   * Standalone on the bike: [firmware/esp32_mid_screen](firmware/esp32_mid_screen) (ESP32 over BLE)
 
-  <img src="docs/img/custom_screen.png" width="350"> <img src="docs/img/custom_screen_error.png" width="350">
+  Three pages, 320×128 (the MID's map area). By default: **big** while riding, **details** and **trip** when stopped.
+
+  <img src="docs/img/page_main.png" width="320"> <img src="docs/img/page_trip.png" width="320"> <img src="docs/img/page_big.png" width="320">
 
 * **Simulator:** a fake bike, so you can develop without the motorcycle.
 

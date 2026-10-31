@@ -37,6 +37,11 @@ object Bike {
     }
     fun rangeKm(): Float? = Bike.telemetry.f("SOC")?.let { soc -> synchronized(range) { range.rangeKm(soc) } }
 
+    /** Trip & efficiency; guard access with synchronized(trip). */
+    val trip = TripTracker()
+    @Volatile var tripLoaded = false
+    fun loadTrip(s: Settings) = synchronized(trip) { if (!tripLoaded) { trip.load(s.tripState); tripLoaded = true } }
+
     fun log(msg: String) = synchronized(log) {
         log.addLast(java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US).format(java.util.Date()) + " " + msg)
         while (log.size > 300) log.removeFirst()
@@ -56,6 +61,9 @@ class Settings(ctx: Context) {
     var navDate: Boolean get() = p.getBoolean("navDate", true); set(v) = p.edit().putBoolean("navDate", v).apply()
     var navText: String get() = p.getString("nav", "")!!; set(v) = p.edit().putString("nav", v).apply()
     var kmPerPercent: Float get() = p.getFloat("kmpp", 1.0f); set(v) = p.edit().putFloat("kmpp", v).apply()
+    var tripState: String? get() = p.getString("tripState", null); set(v) = p.edit().putString("tripState", v).apply()
+    /** "auto" (BIG while riding, MAIN/TRIP when stopped), "main", "trip", "big", "rotate" */
+    var dashStyle: String get() = p.getString("dashStyle", "auto")!!; set(v) = p.edit().putString("dashStyle", v).apply()
     var rangeState: String? get() = p.getString("rangeState", null); set(v) = p.edit().putString("rangeState", v).apply()
     var margins: ScreenRenderer.Margins
         get() = ScreenRenderer.Margins(p.getInt("mL", 0), p.getInt("mT", 0), p.getInt("mR", 0), p.getInt("mB", 0))
@@ -93,6 +101,7 @@ class MidService : Service() {
     }
     @Volatile private var link: MidLink? = null
     private val parser = LineParser()
+    private var frameNo = 0
     private var lastSend = 0L
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -168,7 +177,17 @@ class MidService : Service() {
 
     private fun picturePayload(s: Settings): String? = when (s.screenMode) {
         "dashboard" -> {
-            val bmp = ScreenRenderer.render(Bike.telemetry, Bike.rangeKm(), s.margins)
+            frameNo++
+            val moving = (Bike.telemetry.f("SPD") ?: 0f) > 3f
+            val page = when (s.dashStyle) {
+                "main" -> ScreenRenderer.Page.MAIN
+                "trip" -> ScreenRenderer.Page.TRIP
+                "big" -> ScreenRenderer.Page.BIG
+                "rotate" -> ScreenRenderer.Page.values()[frameNo % 3]
+                else -> if (moving) ScreenRenderer.Page.BIG
+                        else if ((frameNo / 2) % 2 == 0) ScreenRenderer.Page.MAIN else ScreenRenderer.Page.TRIP
+            }
+            val bmp = synchronized(Bike.trip) { ScreenRenderer.render(Bike.telemetry, Bike.rangeKm(), s.margins, page, Bike.trip) }
             Bike.lastFrame = bmp
             ScreenRenderer.toMapsBase64(bmp)
         }
@@ -184,6 +203,7 @@ class MidService : Service() {
         var lastPoll = 0L; var lastFrame = 0L; var lastTrip = 0L; var lastNav = 0L; var lastTime = 0L
         var lastMinute = -1; var lastLearn = 0L; var lastSave = 0L
         Bike.loadRange(s)
+        Bike.loadTrip(s)
         while (Bike.running) {
             try {
                 if (link?.isOpen != true) {
@@ -220,6 +240,8 @@ class MidService : Service() {
                 }
                 // Adaptive range: learn from ODO vs SOC once per second, save when something was learned.
                 if (now - lastLearn >= 1000) {
+                    val tm = Bike.telemetry
+                    synchronized(Bike.trip) { Bike.trip.update(tm.f("ODO"), tm.f("SOC"), tm.f("VBAT"), tm.f("IBAT"), now) }
                     val odo = Bike.telemetry.f("ODO"); val soc = Bike.telemetry.f("SOC")
                     if (odo != null && soc != null) {
                         val learned = synchronized(Bike.range) {
@@ -229,6 +251,7 @@ class MidService : Service() {
                         // also save regularly, so a quick reconnect continues the same segment
                         if (learned || now - lastSave >= 10_000) {
                             s.rangeState = synchronized(Bike.range) { Bike.range.save() }
+                            s.tripState = synchronized(Bike.trip) { Bike.trip.save() }
                             lastSave = now
                         }
                         if (learned) Bike.log("Range learned: " + synchronized(Bike.range) { Bike.range.describe() })

@@ -48,6 +48,11 @@ class MainActivity : Activity() {
     private lateinit var bgInfo: TextView
 
     private companion object {
+        val DASH_STYLES = listOf(
+            "auto" to "Auto: big numbers while riding, details + trip when stopped",
+            "main" to "Always details", "trip" to "Always trip", "big" to "Always big numbers",
+            "rotate" to "Rotate all three",
+        )
         val SCREEN_MODES = listOf(
             "dashboard" to "My dashboard (live data)", "picture" to "My picture",
             "grid" to "Calibration grid", "off" to "Off (don't send pictures)",
@@ -63,6 +68,7 @@ class MainActivity : Activity() {
         super.onCreate(savedInstanceState)
         settings = Settings(this)
         Bike.loadRange(settings)
+        Bike.loadTrip(settings)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         setContentView(buildUi())
         askPermissions()
@@ -211,6 +217,18 @@ class MainActivity : Activity() {
         }
         modeGroup.setOnCheckedChangeListener { g, id -> settings.screenMode = g.findViewById<View>(id).tag as String }
         root.addView(modeGroup)
+        root.addView(TextView(this).apply { text = "Dashboard pages"; setTextColor(Color.GRAY); setPadding(0, dp(8), 0, 0) })
+        val styleGroup = RadioGroup(this)
+        DASH_STYLES.forEachIndexed { i, (key, label) ->
+            styleGroup.addView(RadioButton(this).apply { id = 200 + i; text = label; tag = key; setTextColor(Color.WHITE) })
+        }
+        styleGroup.check(200 + DASH_STYLES.map { it.first }.indexOf(settings.dashStyle).coerceAtLeast(0))
+        styleGroup.setOnCheckedChangeListener { g, id -> settings.dashStyle = g.findViewById<View>(id).tag as String }
+        root.addView(styleGroup)
+        button(root, "Reset trip") {
+            synchronized(Bike.trip) { Bike.trip.reset(); settings.tripState = Bike.trip.save() }
+            toast("Trip reset")
+        }
         button(root, "Choose picture...") {
             startActivityForResult(Intent(Intent.ACTION_GET_CONTENT).setType("image/*"), pickPicture)
         }
@@ -382,6 +400,12 @@ class MainActivity : Activity() {
             appendLine("Mode      ${t.mode ?: "--"}   gear ${t.gear ?: "--"}")
             appendLine("Range     ${Bike.rangeKm()?.let { String.format(Locale.US, "%.0f km", it) } ?: "--"}")
             appendLine("ODO       ${v("ODO", " km")}")
+            synchronized(Bike.trip) {
+                val tr = Bike.trip
+                appendLine(String.format(Locale.US, "Trip      %.1f km, %.0f Wh, %s, %s", tr.km, tr.energyWh,
+                    tr.whPerKm?.let { String.format(Locale.US, "%.0f Wh/km", it) } ?: "-- Wh/km",
+                    tr.kmPerPercent?.let { String.format(Locale.US, "%.2f km/1%%", it) } ?: "-- km/1%"))
+            }
             appendLine("Temp      bat ${v("TBAT")}  motor ${v("TMOT")}  inv ${v("TINV")} °C")
             append("Errors    ${if (t.errorMask == null) "--" else t.errors.ifEmpty { listOf("none") }.joinToString()}")
         }

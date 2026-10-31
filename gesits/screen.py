@@ -69,7 +69,7 @@ DEFAULT_MARGINS = (0, 0, 0, 0)    # left, top, right, bottom (pixels) if the MID
 
 
 def render(tel: Telemetry, now: Optional[time.struct_time] = None, range_km: Optional[float] = None,
-           margins=DEFAULT_MARGINS):
+           margins=DEFAULT_MARGINS, page: str = "main", trip: Optional[dict] = None):
     """Return the 320x128 picture for AT+MAPS (same layout as the Android app's ScreenRenderer.kt).
     Text positions are baselines (anchor "ls"), exactly like Android's Canvas.drawText."""
     from PIL import Image, ImageDraw
@@ -82,6 +82,13 @@ def render(tel: Telemetry, now: Optional[time.struct_time] = None, range_km: Opt
 
     def txt(x, y, s, f, fill):
         d.text((x, y), s, font=f, fill=fill, anchor="ls")
+
+    if page == "big":
+        _draw_big(d, tel, rng, txt)
+        return dash
+    if page == "trip":
+        _draw_trip(d, tel, rng, txt, now, trip or {})
+        return dash
 
     # row 1: clock, range, gear, mode
     txt(6, 17, time.strftime("%H:%M", now), f18, TEXT)
@@ -136,6 +143,56 @@ def render(tel: Telemetry, now: Optional[time.struct_time] = None, range_km: Opt
     img = Image.new("RGB", (W, H), BG)
     img.paste(dash.resize((max(1, round(DW * sc)), max(1, round(DH * sc))), Image.LANCZOS), (left, top))
     return img
+
+
+def _top_row(d, tel, txt, now, label):
+    f12 = _font(12)
+    txt(6, 17, time.strftime("%H:%M", now), _font(18), TEXT)
+    if label:
+        txt(72, 16, label, _font(14), MUTED)
+    mode = tel.drive_mode or "--"
+    mc = MODE_COLOURS.get(mode, MUTED)
+    mw = d.textlength(mode, font=f12) + 14
+    d.rounded_rectangle((DW - 6 - mw, 2, DW - 6, 20), radius=5, fill=mc)
+    txt(DW - 6 - mw + 7, 16, mode, f12, BG)
+    gear = {"PARK": "P", "DRIVE": "D"}.get(tel.park_state or "", "-")
+    gc = AMBER if gear == "P" else GREEN if gear == "D" else MUTED
+    d.rounded_rectangle((DW - 12 - mw - 20, 2, DW - 12 - mw, 20), radius=5, outline=gc, width=2)
+    txt(DW - 12 - mw - 14, 16, gear, f12, gc)
+
+
+def _draw_trip(d, tel, rng, txt, now, trip):
+    """TRIP page (same as ScreenRenderer.drawTrip): distance, energy, Wh/km, km per 1 %."""
+    _top_row(d, tel, txt, now, "TRIP" + (f"  {_fmt(rng)} km left" if rng is not None else ""))
+    km, wh = trip.get("km"), trip.get("wh")
+    whkm, kmpp = trip.get("wh_per_km"), trip.get("km_per_percent")
+    tiles = [("DISTANCE", f"{km:.1f} km" if km is not None else "--"),
+             ("ENERGY USED", f"{wh:.0f} Wh" if wh is not None else "--"),
+             ("EFFICIENCY", f"{whkm:.0f} Wh/km" if whkm else "-- Wh/km"),
+             ("KM PER 1%", f"{kmpp:.2f} km" if kmpp else "-- km")]
+    tw = (DW - 8 - 6) / 2
+    for i, (label, value) in enumerate(tiles):
+        x0 = 4 + (i % 2) * (tw + 6)
+        y0 = 24 if i < 2 else 76
+        d.rounded_rectangle((x0, y0, x0 + tw, y0 + 50), radius=5, fill=PANEL)
+        txt(x0 + 8, y0 + 15, label, _font(12), MUTED)
+        txt(x0 + 8, y0 + 42, value, _font(21), TEXT)
+
+
+def _draw_big(d, tel, rng, txt):
+    """BIG page for riding (same as ScreenRenderer.drawBig): battery %, power, range."""
+    soc = tel.get_float("SOC")
+    txt(6, 80, _fmt(soc) + "%", _font(60), TEXT)
+    d.rounded_rectangle((6, 94, 152, 112), radius=5, fill=PANEL)
+    if soc:
+        c = RED if soc <= 20 else AMBER if soc <= 35 else GREEN
+        d.rounded_rectangle((6, 94, 6 + 146 * max(0.0, min(soc, 100)) / 100, 112), radius=5, fill=c)
+    d.rectangle((161, 6, 162, 122), fill=PANEL)
+    p = tel.power_w
+    txt(174, 44, _fmt(p / 1000, ".1f") if p is not None else "--", _font(34), GREEN if p is not None and p < 0 else TEXT)
+    txt(176, 60, "kW REGEN" if p is not None and p < 0 else "kW POWER", _font(12), MUTED)
+    txt(174, 104, _fmt(rng), _font(34), TEXT)
+    txt(176, 120, "km RANGE", _font(12), MUTED)
 
 
 def calibration_grid():

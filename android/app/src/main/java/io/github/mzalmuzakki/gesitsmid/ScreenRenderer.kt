@@ -42,7 +42,9 @@ object ScreenRenderer {
     private const val DW = 320f
     private const val DH = 128f
 
-    fun render(t: Telemetry, rangeKm: Float?, m: Margins = Margins()): Bitmap {
+    enum class Page { MAIN, TRIP, BIG }
+
+    fun render(t: Telemetry, rangeKm: Float?, m: Margins = Margins(), page: Page = Page.MAIN, trip: TripTracker? = null): Bitmap {
         val bmp = Bitmap.createBitmap(Mid.FRAME_W, Mid.FRAME_H, Bitmap.Config.ARGB_8888)
         val c = Canvas(bmp)
         c.drawColor(BG)
@@ -52,8 +54,72 @@ object ScreenRenderer {
         c.translate(m.left.toFloat(), m.top.toFloat())
         c.scale(sc, sc)
         c.clipRect(0f, 0f, DW, DH)
-        drawDashboard(c, t, rangeKm)
+        when (page) {
+            Page.MAIN -> drawDashboard(c, t, rangeKm)
+            Page.TRIP -> drawTrip(c, t, rangeKm, trip)
+            Page.BIG -> drawBig(c, t, rangeKm)
+        }
         return bmp
+    }
+
+    private fun rrect(c: Canvas, l: Float, top: Float, r: Float, b: Float, col: Int, stroke: Boolean = false) {
+        val box = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = col; style = if (stroke) Paint.Style.STROKE else Paint.Style.FILL; strokeWidth = 2f
+        }
+        c.drawRoundRect(RectF(l, top, r, b), 5f, 5f, box)
+    }
+
+    /** Top row shared by MAIN and TRIP: clock, title/range, gear, mode. */
+    private fun topRow(c: Canvas, t: Telemetry, label: String?) {
+        val w = DW
+        c.drawText(SimpleDateFormat("HH:mm", Locale.US).format(Date()), 6f, 17f, paint(18f, TEXT))
+        if (label != null) c.drawText(label, 72f, 16f, paint(14f, MUTED))
+        val small = paint(12f, MUTED)
+        val mode = t.mode ?: "--"
+        val mc = when (mode) { "ECO" -> GREEN; "URBAN" -> BLUE; "SPORT" -> RED; else -> MUTED }
+        val mw = small.measureText(mode) + 14f
+        rrect(c, w - 6 - mw, 2f, w - 6, 20f, mc)
+        c.drawText(mode, w - 6 - mw + 7, 16f, paint(12f, BG))
+        val gear = t.gear ?: "-"
+        val gc = when (gear) { "P" -> AMBER; "D" -> GREEN; else -> MUTED }
+        rrect(c, w - 12 - mw - 20, 2f, w - 12 - mw, 20f, gc, stroke = true)
+        c.drawText(gear, w - 12 - mw - 14, 16f, paint(12f, gc))
+    }
+
+    /** TRIP page: 2 x 2 tiles - distance, energy, Wh/km, km per 1 %. */
+    private fun drawTrip(c: Canvas, t: Telemetry, rangeKm: Float?, trip: TripTracker?) {
+        topRow(c, t, "TRIP" + (rangeKm?.let { "  ${fmt(it)} km left" } ?: ""))
+        val tiles = listOf(
+            "DISTANCE" to (trip?.let { String.format(Locale.US, "%.1f km", it.km) } ?: "--"),
+            "ENERGY USED" to (trip?.let { String.format(Locale.US, "%.0f Wh", it.energyWh) } ?: "--"),
+            "EFFICIENCY" to (trip?.whPerKm?.let { String.format(Locale.US, "%.0f Wh/km", it) } ?: "-- Wh/km"),
+            "KM PER 1%" to (trip?.kmPerPercent?.let { String.format(Locale.US, "%.2f km", it) } ?: "-- km"),
+        )
+        val tw = (DW - 8 - 6) / 2
+        tiles.forEachIndexed { i, (label, value) ->
+            val x0 = 4 + (i % 2) * (tw + 6)
+            val y0 = if (i < 2) 24f else 76f
+            rrect(c, x0, y0, x0 + tw, y0 + 50f, PANEL)
+            c.drawText(label, x0 + 8, y0 + 15f, paint(12f, MUTED))
+            c.drawText(value, x0 + 8, y0 + 42f, paint(21f, TEXT))
+        }
+    }
+
+    /** BIG page for riding: battery %, power and range only, in large type. */
+    private fun drawBig(c: Canvas, t: Telemetry, rangeKm: Float?) {
+        val soc = t.f("SOC")
+        c.drawText(fmt(soc) + "%", 6f, 80f, paint(60f, TEXT))
+        rrect(c, 6f, 94f, 152f, 112f, PANEL)
+        if (soc != null && soc > 0) rrect(c, 6f, 94f, 6f + 146f * soc.coerceIn(0f, 100f) / 100f, 112f,
+            if (soc <= 20) RED else if (soc <= 35) AMBER else GREEN)
+        val bar = Paint().apply { color = PANEL }
+        c.drawRect(Rect(161, 6, 163, 122), bar)
+        val p = t.powerW
+        val pc = if (p != null && p < 0) GREEN else TEXT
+        c.drawText((if (p == null) "--" else String.format(Locale.US, "%.1f", p / 1000f)), 174f, 44f, paint(34f, pc))
+        c.drawText(if (p != null && p < 0) "kW REGEN" else "kW POWER", 176f, 60f, paint(12f, MUTED))
+        c.drawText(fmt(rangeKm), 174f, 104f, paint(34f, TEXT))
+        c.drawText("km RANGE", 176f, 120f, paint(12f, MUTED))
     }
 
     private fun drawDashboard(c: Canvas, t: Telemetry, rangeKm: Float?) {
