@@ -44,7 +44,7 @@ object Ui {
             setPadding(dp(a, 14), dp(a, 10), dp(a, 14), dp(a, 24))
         }
         if (title != null) col.addView(TextView(a).apply {
-            text = title; textSize = 24f; setTypeface(typeface, Typeface.BOLD); setTextColor(TEXT)
+            text = L.t(title); textSize = 24f; setTypeface(typeface, Typeface.BOLD); setTextColor(TEXT)
             setPadding(dp(a, 4), dp(a, 6), 0, dp(a, 6))
         })
         return ScrollView(a).apply { setBackgroundColor(BG); isFillViewport = true; addView(col) } to col
@@ -58,7 +58,7 @@ object Ui {
             background = rounded(CARD, dp(a, 16).toFloat(), accent, if (accent != null) dp(a, 1) else 0)
         }
         if (title != null) c.addView(TextView(a).apply {
-            text = title; textSize = 13f; setTypeface(typeface, Typeface.BOLD); setTextColor(accent ?: MUTED)
+            text = L.t(title); textSize = 13f; setTypeface(typeface, Typeface.BOLD); setTextColor(accent ?: MUTED)
             letterSpacing = 0.06f; setPadding(0, 0, 0, dp(a, 6))
         })
         parent.addView(c, lp(a))
@@ -67,7 +67,7 @@ object Ui {
 
     fun text(a: Activity, parent: ViewGroup, s: String = "", size: Float = 14f, color: Int = TEXT,
              bold: Boolean = false, mono: Boolean = false) = TextView(a).apply {
-        text = s; textSize = size; setTextColor(color)
+        text = L.t(s); textSize = size; setTextColor(color)
         if (bold) setTypeface(typeface, Typeface.BOLD)
         if (mono) typeface = Typeface.MONOSPACE
         setLineSpacing(0f, 1.15f)
@@ -81,12 +81,12 @@ object Ui {
 
     /** Filled green button (main action). Weight > 0 = share a row. */
     fun primary(a: Activity, parent: ViewGroup, s: String, weight: Float = 0f, onClick: () -> Unit) =
-        styled(a, Button(a), GREEN, Color.rgb(8, 20, 12), null).apply { text = s; setTypeface(typeface, Typeface.BOLD); setOnClickListener { onClick() } }
+        styled(a, Button(a), GREEN, Color.rgb(8, 20, 12), null).apply { text = L.t(s); setTypeface(typeface, Typeface.BOLD); setOnClickListener { onClick() } }
             .also { add(a, parent, it, weight) }
 
     /** Outlined button (secondary action). */
     fun secondary(a: Activity, parent: ViewGroup, s: String, weight: Float = 0f, color: Int = TEXT, onClick: () -> Unit) =
-        styled(a, Button(a), CARD2, color, null).apply { text = s; setOnClickListener { onClick() } }.also { add(a, parent, it, weight) }
+        styled(a, Button(a), CARD2, color, null).apply { text = L.t(s); setOnClickListener { onClick() } }.also { add(a, parent, it, weight) }
 
     private fun add(a: Activity, parent: ViewGroup, v: View, weight: Float) {
         if (weight > 0f) parent.addView(v, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, weight).apply {
@@ -100,8 +100,8 @@ object Ui {
     fun switchRow(a: Activity, parent: ViewGroup, title: String, desc: String?, checked: Boolean, onChange: (Boolean) -> Unit): Switch {
         val r = LinearLayout(a).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setPadding(0, dp(a, 6), 0, dp(a, 6)) }
         val texts = LinearLayout(a).apply { orientation = LinearLayout.VERTICAL }
-        texts.addView(TextView(a).apply { text = title; textSize = 15f; setTextColor(TEXT) })
-        if (desc != null) texts.addView(TextView(a).apply { text = desc; textSize = 12f; setTextColor(MUTED) })
+        texts.addView(TextView(a).apply { text = L.t(title); textSize = 15f; setTextColor(TEXT) })
+        if (desc != null) texts.addView(TextView(a).apply { text = L.t(desc); textSize = 12f; setTextColor(MUTED) })
         r.addView(texts, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
         val sw = Switch(a).apply {
             isChecked = checked
@@ -122,7 +122,7 @@ object Ui {
         }
         val views = options.map { (key, label) ->
             TextView(a).apply {
-                text = label; textSize = 13f; gravity = Gravity.CENTER; tag = key
+                text = L.t(label); textSize = 13f; gravity = Gravity.CENTER; tag = key
                 setPadding(dp(a, 4), dp(a, 10), dp(a, 4), dp(a, 10))
             }.also { bar.addView(it, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)) }
         }
@@ -147,7 +147,7 @@ object Ui {
             setPadding(dp(a, 12), dp(a, 10), dp(a, 12), dp(a, 10))
             background = rounded(CARD2, dp(a, 12).toFloat())
         }
-        c.addView(TextView(a).apply { text = label; textSize = 11f; setTextColor(MUTED); letterSpacing = 0.05f })
+        c.addView(TextView(a).apply { text = L.t(label); textSize = 11f; setTextColor(MUTED); letterSpacing = 0.05f })
         val v = TextView(a).apply { textSize = size; setTypeface(typeface, Typeface.BOLD); setTextColor(TEXT); text = "--" }
         c.addView(v)
         parent.addView(c, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
@@ -157,7 +157,7 @@ object Ui {
     }
 
     fun input(a: Activity, parent: ViewGroup, hint: String, value: String = "", number: Boolean = false) = EditText(a).apply {
-        this.hint = hint; setText(value); setTextColor(TEXT); setHintTextColor(MUTED); textSize = 15f
+        this.hint = L.t(hint); setText(value); setTextColor(TEXT); setHintTextColor(MUTED); textSize = 15f
         inputType = if (number) InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL else InputType.TYPE_CLASS_TEXT
         background = rounded(CARD2, dp(a, 10).toFloat()); setPadding(dp(a, 12), dp(a, 10), dp(a, 12), dp(a, 10))
     }.also { parent.addView(it, lp(a, 4, 4)) }
@@ -171,21 +171,22 @@ object Ui {
     /** "Advanced" section that starts collapsed. Returns its content column. */
     fun collapsible(a: Activity, parent: ViewGroup, title: String): LinearLayout {
         val c = card(a, parent)
-        val head = TextView(a).apply { text = "▸  $title"; textSize = 15f; setTextColor(TEXT); setPadding(0, dp(a, 2), 0, dp(a, 2)) }
+        val shown = L.t(title)
+        val head = TextView(a).apply { text = "▸  $shown"; textSize = 15f; setTextColor(TEXT); setPadding(0, dp(a, 2), 0, dp(a, 2)) }
         c.addView(head)
         val body = LinearLayout(a).apply { orientation = LinearLayout.VERTICAL; visibility = View.GONE; setPadding(0, dp(a, 8), 0, 0) }
         c.addView(body)
         head.setOnClickListener {
             val open = body.visibility != View.VISIBLE
             body.visibility = if (open) View.VISIBLE else View.GONE
-            head.text = (if (open) "▾  " else "▸  ") + title
+            head.text = (if (open) "▾  " else "▸  ") + shown
         }
         return body
     }
 
     /** Section title (green). */
     fun header(a: Activity, parent: ViewGroup, s: String) = parent.addView(TextView(a).apply {
-        text = s; textSize = 16f; setTypeface(typeface, Typeface.BOLD); setTextColor(GREEN)
+        text = L.t(s); textSize = 16f; setTypeface(typeface, Typeface.BOLD); setTextColor(GREEN)
         setPadding(dp(a, 2), dp(a, 16), 0, dp(a, 6))
     })
 

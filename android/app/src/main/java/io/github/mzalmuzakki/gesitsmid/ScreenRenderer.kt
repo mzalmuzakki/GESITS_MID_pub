@@ -42,7 +42,7 @@ object ScreenRenderer {
     private const val DW = 320f
     private const val DH = 128f
 
-    enum class Page { MAIN, TRIP, BIG }
+    enum class Page { MAIN, TRIP, BIG, NAV }
 
     fun render(t: Telemetry, rangeKm: Float?, m: Margins = Margins(), page: Page = Page.MAIN, trip: TripTracker? = null): Bitmap {
         val bmp = Bitmap.createBitmap(Mid.FRAME_W, Mid.FRAME_H, Bitmap.Config.ARGB_8888)
@@ -58,6 +58,7 @@ object ScreenRenderer {
             Page.MAIN -> drawDashboard(c, t, rangeKm)
             Page.TRIP -> drawTrip(c, t, rangeKm, trip)
             Page.BIG -> drawBig(c, t, rangeKm)
+            Page.NAV -> drawNav(c, Bike.nav)
         }
         return bmp
     }
@@ -88,12 +89,12 @@ object ScreenRenderer {
 
     /** TRIP page: 2 x 2 tiles - distance, energy, Wh/km, km per 1 %. */
     private fun drawTrip(c: Canvas, t: Telemetry, rangeKm: Float?, trip: TripTracker?) {
-        topRow(c, t, "TRIP" + (rangeKm?.let { "  ${fmt(it)} km left" } ?: ""))
+        topRow(c, t, L.t("TRIP") + (rangeKm?.let { "  ${fmt(it)} " + L.t("km left") } ?: ""))
         val tiles = listOf(
-            "DISTANCE" to (trip?.let { String.format(Locale.US, "%.1f km", it.km) } ?: "--"),
-            "ENERGY USED" to (trip?.let { String.format(Locale.US, "%.0f Wh", it.energyWh) } ?: "--"),
-            "EFFICIENCY" to (trip?.whPerKm?.let { String.format(Locale.US, "%.0f Wh/km", it) } ?: "-- Wh/km"),
-            "KM PER 1%" to (trip?.kmPerPercent?.let { String.format(Locale.US, "%.2f km", it) } ?: "-- km"),
+            L.t("DISTANCE") to (trip?.let { String.format(Locale.US, "%.1f km", it.km) } ?: "--"),
+            L.t("ENERGY USED") to (trip?.let { String.format(Locale.US, "%.0f Wh", it.energyWh) } ?: "--"),
+            L.t("EFFICIENCY") to (trip?.whPerKm?.let { String.format(Locale.US, "%.0f Wh/km", it) } ?: "-- Wh/km"),
+            L.t("KM PER 1%") to (trip?.kmPerPercent?.let { String.format(Locale.US, "%.2f km", it) } ?: "-- km"),
         )
         val tw = (DW - 8 - 6) / 2
         tiles.forEachIndexed { i, (label, value) ->
@@ -103,6 +104,36 @@ object ScreenRenderer {
             c.drawText(label, x0 + 8, y0 + 15f, paint(12f, MUTED))
             c.drawText(value, x0 + 8, y0 + 42f, paint(21f, TEXT))
         }
+    }
+
+    /** NAV page: Google Maps' next turn as a big arrow, the distance, the street and the arrival time. */
+    private fun drawNav(c: Canvas, n: NavParser.Instruction?) {
+        if (n == null) return
+        val stroke = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = GREEN; style = Paint.Style.STROKE; strokeWidth = 12f; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND
+        }
+        val head = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = GREEN; style = Paint.Style.FILL }
+        val cx = 62f; val base = 112f
+        fun arrowHead(x: Float, y: Float, angleDeg: Float) {
+            val p = android.graphics.Path()
+            p.moveTo(0f, -18f); p.lineTo(16f, 6f); p.lineTo(-16f, 6f); p.close()
+            c.save(); c.translate(x, y); c.rotate(angleDeg); c.drawPath(p, head); c.restore()
+        }
+        val path = android.graphics.Path()
+        when (n.turn) {
+            NavParser.Turn.LEFT -> { path.moveTo(cx + 12, base); path.lineTo(cx + 12, 58f); path.lineTo(cx - 22, 58f); c.drawPath(path, stroke); arrowHead(cx - 28, 58f, -90f) }
+            NavParser.Turn.RIGHT -> { path.moveTo(cx - 12, base); path.lineTo(cx - 12, 58f); path.lineTo(cx + 22, 58f); c.drawPath(path, stroke); arrowHead(cx + 28, 58f, 90f) }
+            NavParser.Turn.SLIGHT_LEFT -> { path.moveTo(cx + 8, base); path.lineTo(cx + 8, 80f); path.lineTo(cx - 14, 46f); c.drawPath(path, stroke); arrowHead(cx - 18, 40f, -35f) }
+            NavParser.Turn.SLIGHT_RIGHT -> { path.moveTo(cx - 8, base); path.lineTo(cx - 8, 80f); path.lineTo(cx + 14, 46f); c.drawPath(path, stroke); arrowHead(cx + 18, 40f, 35f) }
+            NavParser.Turn.UTURN -> { path.moveTo(cx + 18, base); path.lineTo(cx + 18, 52f); path.arcTo(RectF(cx - 18, 34f, cx + 18, 70f), 0f, -180f); path.lineTo(cx - 18, 80f); c.drawPath(path, stroke); arrowHead(cx - 18, 88f, 180f) }
+            NavParser.Turn.ROUNDABOUT -> { c.drawCircle(cx, 66f, 20f, stroke); path.moveTo(cx, base); path.lineTo(cx, 86f); c.drawPath(path, stroke); arrowHead(cx + 24, 46f, 45f) }
+            NavParser.Turn.ARRIVE -> { c.drawCircle(cx, 60f, 26f, stroke); c.drawCircle(cx, 60f, 9f, head) }
+            else -> { path.moveTo(cx, base); path.lineTo(cx, 40f); c.drawPath(path, stroke); arrowHead(cx, 32f, 0f) }
+        }
+        c.drawText(n.distance ?: "", 132f, 58f, paint(40f, TEXT))
+        val street = n.street.take(26)
+        c.drawText(street, 132f, 86f, paint(16f, TEXT))
+        if (n.eta != null) c.drawText("ETA ${n.eta}", 132f, 110f, paint(14f, MUTED))
     }
 
     /** BIG page for riding: battery %, power and range only, in large type. */
@@ -117,9 +148,9 @@ object ScreenRenderer {
         val p = t.powerW
         val pc = if (p != null && p < 0) GREEN else TEXT
         c.drawText((if (p == null) "--" else String.format(Locale.US, "%.1f", p / 1000f)), 174f, 44f, paint(34f, pc))
-        c.drawText(if (p != null && p < 0) "kW REGEN" else "kW POWER", 176f, 60f, paint(12f, MUTED))
+        c.drawText(if (p != null && p < 0) L.t("kW REGEN") else L.t("kW POWER"), 176f, 60f, paint(12f, MUTED))
         c.drawText(fmt(rangeKm), 174f, 104f, paint(34f, TEXT))
-        c.drawText("km RANGE", 176f, 120f, paint(12f, MUTED))
+        c.drawText(L.t("km RANGE"), 176f, 120f, paint(12f, MUTED))
     }
 
     private fun drawDashboard(c: Canvas, t: Telemetry, rangeKm: Float?) {
@@ -156,7 +187,7 @@ object ScreenRenderer {
         c.drawRect(Rect(159, 26, 161, 76), box)
         val p = t.powerW
         c.drawText((if (p == null) "--" else String.format(Locale.US, "%.1f", p / 1000f)) + " kW", 170f, 44f, med)
-        c.drawText(if (p != null && p < 0) "REGEN" else "POWER", 170f, 60f, small)
+        c.drawText(if (p != null && p < 0) L.t("REGEN") else L.t("POWER"), 170f, 60f, small)
         rr(170f, 66f, 314f, 76f, PANEL)
         if (p != null && p != 0f) rr(170f, 66f, 170f + 144f * (abs(p) / MAX_POWER_W).coerceIn(0f, 1f), 76f, if (p < 0) GREEN else BLUE)
 
@@ -164,7 +195,7 @@ object ScreenRenderer {
         val errs = t.errors
         if (errs.isNotEmpty()) {
             rr(4f, 82f, w - 4, DH - 2, RED)
-            c.drawText("ERROR", 12f, 101f, med)
+            c.drawText(L.t("ERROR"), 12f, 101f, med)
             c.drawText(errs.first().take(40), 12f, 119f, paint(12f, TEXT))
         } else {
             val tiles = listOf(Triple("BAT", "TBAT", 45f to 55f), Triple("MOT", "TMOT", 70f to 85f), Triple("INV", "TINV", 70f to 85f))

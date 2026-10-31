@@ -14,9 +14,12 @@ GitHub Actions builds it, so you know exactly what you install.
 One screen with four tabs at the bottom:
 * **Home:** connect button and status, live values, alerts, Speedometer and Diagnosis buttons, current trip.
 * **MID:** preview of what the MID shows; what to show (live info, your picture or nothing), dashboard
-  pages, text line, adaptive range, clock. Position and calibration are under *Advanced*.
-* **Trips:** this week vs your target, totals, savings vs petrol, last 7 days, records, history, CSV export.
-* **Tools:** maps and parking, alarms, keep-connected settings, privacy and permissions, and
+  pages, text line, adaptive range, what the MID accepted, turn-by-turn directions, speed warning, clock.
+  Position and calibration are under *Advanced*.
+* **Trips:** this week vs your target, totals, savings vs petrol, battery health and cycles, last 7 days,
+  records, history, CSV export.
+* **Tools:** maps and parking, alarms, keep-connected settings, language (English / Bahasa Indonesia),
+  home-screen widget, privacy and permissions, and
   (under *Advanced*) the console and log.
 
 ## What it does
@@ -27,7 +30,7 @@ One screen with four tabs at the bottom:
   `docs/img/custom_screen.png`) or **a picture you choose**.
 * **Adaptive range on the MID:** learns your real km per 1% battery from the odometer while you
   ride (most recent ~60% of battery used) and sends battery % × that to the MID's range display
-  (`AT+TRIP`) every 3 s. It starts from a value you set (default 1.0 km per 1%), which fades out after
+  (`AT+TRIP`) every second (the MID goes back to its own figure if updates stop). It starts from a value you set (default 1.0 km per 1%), which fades out after
   20% of battery has been learned. Charging, gaps over 30 min without the app, and impossible
   readings are ignored. **Forget learned range** starts over (e.g. after a battery change).
 * **Clock sync:** sets the MID clock from your phone on connect, at every minute change, and every 30 s.
@@ -39,6 +42,22 @@ One screen with four tabs at the bottom:
 * **Diagnosis:** live charts (speed/power, throttle, temperatures, last 10 min) and MID errors with
   plain-language advice. **Alarms** (phone notifications): low battery, hot battery or motor, battery
   health below 75%, MID errors.
+* **Battery health and cycles:** the MID doesn't report the battery's lifetime cycle count (the app
+  asks for it anyway and shows it if your bike answers). So the app counts from the day it's installed:
+  **equivalent full cycles** (total % used ÷ 100, so four 25 % rides = 1 cycle), **charging sessions**,
+  **usable capacity** (energy used ÷ % used, after about 20 % of riding) and the **health (SOH) trend**
+  the battery reports, one point a day.
+* **Charging:** while the bike is charging (current flowing in while stopped), Home shows % per hour
+  and time to 80/90/100 %, and a notification tells you when your chosen level is reached.
+* **Turn-by-turn directions:** start navigation in Google Maps; the MID picture switches to a big
+  turn arrow, distance, street and arrival time, and the text line shows the next turn. Needs
+  *notification access* (MID tab → Directions). The app reads only Google Maps' notifications, keeps
+  only the latest instruction in memory, and has no internet permission to send it anywhere.
+* **Speed warning:** pick 50/60/70/80 km/h; after 3 s over it the MID text line shows a warning.
+* **MID accepted:** the MID answers each write it takes; the MID tab shows which ones it confirmed, and
+  a picture that wasn't confirmed is sent again.
+* **Home-screen widget:** battery % and range, updated about once a minute while connected.
+* **Bahasa Indonesia** throughout (follows the phone, or pick it in Tools).
 * **Speedometer:** full-screen landscape dashboard on the phone (speed, battery, range, power or regen,
   trip, temperatures).
 * **Maps hand-off:** "Navigate" and "SPKLU near me" open Google Maps, so this app itself stays offline.
@@ -49,7 +68,7 @@ One screen with four tabs at the bottom:
 | | This app | GESITS Dashboard (community) |
 |---|---|---|
 | Internet | **none** (no INTERNET permission) | yes |
-| Permissions | Bluetooth, notifications, foreground service; location only if you switch on "Remember where I parked" (Android 8–11 also need it for BLE scanning) | + camera, microphone, screen capture, overlay, **install other apps**, storage |
+| Permissions | Bluetooth, notifications, foreground service; location only if you switch on "Remember where I parked" (Android 8–11 also need it for BLE scanning); notification access only if you use directions, and then only Google Maps' notifications are read | + camera, microphone, screen capture, overlay, **install other apps**, storage |
 | Third-party libraries | **none** | Mapbox, BouncyCastle, Play Services, ... |
 | Writes odometer | **never** | yes (`AT+ODO=`) |
 | Source | this repo, built by GitHub Actions | closed APK |

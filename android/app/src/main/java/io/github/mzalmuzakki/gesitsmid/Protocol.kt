@@ -29,6 +29,9 @@ object Mid {
 
     /** Sent once on connect by GRID Mobile (meaning unknown - kept for compatibility). */
     const val ARROW_ON = "AT+ARROW=\"1\"\r\n"
+    /** Guesses for a battery cycle-count query; asked once per connection, shown if the MID answers. */
+    val CYCLE_KEYS = listOf("CYCLE", "CYC", "CYCLES", "NCYC", "BCYC", "CHGCYC")
+
     /** MID firmware version (GRID Mobile shows it as "MID ver ..."). */
     const val VERSION_QUERY = "AT+VER?\r\n"
 

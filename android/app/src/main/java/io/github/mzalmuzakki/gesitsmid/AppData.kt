@@ -54,9 +54,16 @@ object Alerts {
     private const val CHANNEL = "alerts"
     private var id = 100
 
-    fun notify(ctx: Context, msg: String) {
+    /** AlarmMonitor messages are "Battery low: 19%" etc.; translate the part before the colon. */
+    private fun localize(msg: String): String {
+        val i = msg.indexOf(':')
+        return if (i > 0) L.t(msg.substring(0, i)) + msg.substring(i) else L.t(msg)
+    }
+
+    fun notify(ctx: Context, message: String) {
+        val msg = localize(message)
         val nm = ctx.getSystemService(NotificationManager::class.java)
-        nm.createNotificationChannel(NotificationChannel(CHANNEL, "Bike alarms", NotificationManager.IMPORTANCE_HIGH))
+        nm.createNotificationChannel(NotificationChannel(CHANNEL, L.t("Bike alarms"), NotificationManager.IMPORTANCE_HIGH))
         val open = PendingIntent.getActivity(ctx, 1, Intent(ctx, DiagnosisActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
         val n = Notification.Builder(ctx, CHANNEL)
             .setContentTitle("Gesits MID").setContentText(msg)

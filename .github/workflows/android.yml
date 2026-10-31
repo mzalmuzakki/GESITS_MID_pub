@@ -22,6 +22,9 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       apk: ${{ steps.apk.outputs.file }}
+      version: ${{ steps.apk.outputs.version }}
+      sha: ${{ steps.apk.outputs.sha }}
+      signed: ${{ steps.apk.outputs.signed }}
     steps:
       - uses: actions/checkout@v4
 
@@ -70,6 +73,7 @@ jobs:
           cp android/app/build/outputs/apk/release/app-release.apk "$APK"
           echo "file=$APK" >> "$GITHUB_OUTPUT"
           echo "sha=$(sha256sum "$APK" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+          echo "signed=$SIGNED_WITH" >> "$GITHUB_OUTPUT"
           ls -la "$APK"
 
       - uses: actions/upload-artifact@v4
@@ -77,21 +81,9 @@ jobs:
           name: ${{ steps.apk.outputs.file }}
           path: ${{ steps.apk.outputs.file }}
 
-      - name: Publish to the "android-latest" release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh release delete android-latest --yes --cleanup-tag || true
-          gh release create android-latest "${{ steps.apk.outputs.file }}" \
-            --prerelease --target "${{ github.sha }}" \
-            --title "Gesits MID ${{ steps.apk.outputs.version }} (build ${{ github.run_number }})" \
-            --notes "Built by GitHub Actions from commit ${{ github.sha }}.
-          SHA-256: ${{ steps.apk.outputs.sha }}
-          Signed with: ${{ env.SIGNED_WITH }}
-          Permissions: Bluetooth, notifications, foreground service; location only if parking is turned on. No internet."
-
-  # Screenshots + memory use from an Android 14 emulator, published on the "android-screenshots" release.
-  screenshots:
+  # Runs the APK in an Android 14 emulator: opens every screen, fails if the app crashes, takes screenshots
+  # and measures memory. Only if this passes is the APK published on the "android-latest" release.
+  test-and-publish:
     needs: build
     if: github.repository == 'mzalmuzakki/GESITS_MID_pub'
     runs-on: ubuntu-latest
@@ -118,6 +110,19 @@ jobs:
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
           script: bash .github/scripts/screenshots.sh
+
+      - name: Publish APK to the "android-latest" release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete android-latest --yes --cleanup-tag || true
+          gh release create android-latest "apk/${{ needs.build.outputs.apk }}" \
+            --prerelease --target "${{ github.sha }}" \
+            --title "Gesits MID ${{ needs.build.outputs.version }} (build ${{ github.run_number }})" \
+            --notes "Built by GitHub Actions from commit ${{ github.sha }}. Passed the emulator test (no crashes on any screen).
+          SHA-256: ${{ needs.build.outputs.sha }}
+          Signed with: ${{ needs.build.outputs.signed }}
+          Permissions: Bluetooth, notifications, foreground service; location only if parking is on; notification access only if directions are on. No internet."
 
       - name: Publish screenshots
         env:

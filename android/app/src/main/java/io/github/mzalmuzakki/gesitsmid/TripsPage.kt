@@ -52,6 +52,29 @@ class TripsPage(private val a: Activity, private val settings: Settings) {
         Ui.tile(a, r, "REGEN").text = String.format(Locale.US, "%.0f Wh", st.totalRegenWh)
         Ui.tile(a, r, "KM PER 1%").text = synchronized(Bike.range) { String.format(Locale.US, "%.2f", Bike.range.kmPerPercent) }
 
+        // Battery health: SOH from the MID, capacity from rides, cycles counted by the app
+        val bh = Ui.card(a, col, "BATTERY HEALTH")
+        val log = settings.sohLog.split(";").mapNotNull { e -> e.split(":").takeIf { it.size == 2 }?.let { it[0] to it[1].toFloatOrNull() } }
+        r = Ui.row(a, bh)
+        Ui.tile(a, r, "HEALTH (SOH)").text = (Bike.telemetry.raw["SOH"] ?: log.lastOrNull()?.second?.toInt()?.toString() ?: "--") + "%"
+        Ui.tile(a, r, "USABLE CAPACITY").text = estimateCapacityKwh(rides)?.let { String.format(Locale.US, "%.2f kWh", it) } ?: "--"
+        r = Ui.row(a, bh)
+        val (cyc, charges, since) = synchronized(Bike.battery) { Triple(Bike.battery.equivalentCycles, Bike.battery.chargeSessions, Bike.battery.sinceMs) }
+        Ui.tile(a, r, "CYCLES (COUNTED)").text = String.format(Locale.US, "%.1f", cyc)
+        Ui.tile(a, r, "CHARGES").text = "$charges"
+        val midCycles = Mid.CYCLE_KEYS.firstNotNullOfOrNull { k -> Bike.telemetry.raw[k]?.let { "$k=$it" } }
+        Ui.text(a, bh, (if (L.indo) "Dihitung aplikasi ini sejak " else "Counted by this app since ") +
+            (if (since > 0) SimpleDateFormat("d MMM yyyy", indo).format(Date(since)) else "-") + ". " +
+            (if (L.indo) "1 siklus = 100% baterai terpakai. " else "1 cycle = 100% of battery used. ") +
+            (midCycles?.let { (if (L.indo) "Hitungan dari MID: " else "MID reports: ") + it }
+                ?: (if (L.indo) "Hitungan seumur baterai ada di BMS; MID belum melaporkannya." else "The lifetime count lives in the battery's BMS; the MID hasn't reported it.")),
+            12f, Ui.MUTED)
+        if (log.size >= 2) bh.addView(ChartView(a, 100).apply {
+            unit = "%"
+            series = listOf(ChartView.Series("SOH", Ui.GREEN, log.map { it.second }))
+            xLabels = log.map { it.first.substring(6) + "/" + it.first.substring(4, 6) }
+        })
+
         val sc = Ui.card(a, col, "SAVED VS A PETROL MOTORCYCLE", Ui.GREEN)
         val sv = st.savings(settings.kmPerLitre, settings.rpPerLitre, settings.rpPerKwh)
         Ui.text(a, sc, rp(sv.netRp), 30f, Ui.GREEN, bold = true)

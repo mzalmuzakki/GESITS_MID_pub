@@ -50,6 +50,25 @@
             android:exported="false"
             android:foregroundServiceType="connectedDevice|location" />
 
+        <!-- Reads only Google Maps' navigation notification (after you allow notification access). -->
+        <service
+            android:name=".MapsNotifListener"
+            android:exported="true"
+            android:label="Gesits MID directions"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
+
+        <!-- Home-screen widget: battery, range, connection. -->
+        <receiver android:name=".BikeWidget" android:exported="true" android:label="Gesits MID">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_info" />
+        </receiver>
+
         <activity android:name=".DiagnosisActivity" android:exported="false" android:label="Diagnosis" />
         <activity android:name=".SpeedoActivity" android:exported="false" android:label="Speedometer"
             android:screenOrientation="sensorLandscape" android:theme="@android:style/Theme.Material.NoActionBar.Fullscreen" />

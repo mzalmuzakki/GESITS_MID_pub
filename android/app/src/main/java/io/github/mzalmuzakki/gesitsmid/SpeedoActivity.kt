@@ -51,7 +51,7 @@ class SpeedoView(ctx: Context) : View(ctx) {
 
         // top bar: clock, connection, mode, gear
         c.drawText(SimpleDateFormat("HH:mm", Locale.US).format(Date()), u * 0.5f, u * 0.9f, p(u * 0.6f, TEXT))
-        c.drawText(if (Bike.connected) "● connected" else "○ not connected", u * 3f, u * 0.85f,
+        c.drawText(if (Bike.connected) "● " + L.t("connected") else "○ " + L.t("not connected"), u * 3f, u * 0.85f,
             p(u * 0.35f, if (Bike.connected) GREEN else RED))
         val mode = t.mode ?: "--"
         val mc = when (mode) { "ECO" -> GREEN; "URBAN" -> BLUE; "SPORT" -> RED; else -> MUTED }
@@ -66,26 +66,26 @@ class SpeedoView(ctx: Context) : View(ctx) {
 
         // left: battery
         val soc = t.f("SOC")
-        c.drawText("BATTERY", u * 0.6f, h * 0.35f, p(u * 0.35f, MUTED))
+        c.drawText(L.t("BATTERY"), u * 0.6f, h * 0.35f, p(u * 0.35f, MUTED))
         c.drawText((soc?.toInt()?.toString() ?: "--") + "%", u * 0.6f, h * 0.35f + u * 1.4f, p(u * 1.3f, TEXT))
         rr(c, u * 0.6f, h * 0.35f + u * 1.8f, u * 4.6f, h * 0.35f + u * 2.2f, PANEL)
         if (soc != null) rr(c, u * 0.6f, h * 0.35f + u * 1.8f, u * 0.6f + u * 4f * soc.coerceIn(0f, 100f) / 100f, h * 0.35f + u * 2.2f,
             if (soc <= 20) RED else if (soc <= 35) AMBER else GREEN)
         val range = Bike.rangeKm()
-        c.drawText("RANGE", u * 0.6f, h * 0.35f + u * 3.1f, p(u * 0.35f, MUTED))
+        c.drawText(L.t("RANGE"), u * 0.6f, h * 0.35f + u * 3.1f, p(u * 0.35f, MUTED))
         c.drawText((range?.let { String.format(Locale.US, "%.0f", it) } ?: "--") + " km", u * 0.6f, h * 0.35f + u * 4.1f, p(u * 0.9f, TEXT))
 
         // right: power
         val pw = t.powerW
         val regen = pw != null && pw < 0
-        c.drawText(if (regen) "REGEN" else "POWER", w - u * 0.6f, h * 0.35f, p(u * 0.35f, MUTED, Paint.Align.RIGHT))
+        c.drawText(L.t(if (regen) "REGEN" else "POWER"), w - u * 0.6f, h * 0.35f, p(u * 0.35f, MUTED, Paint.Align.RIGHT))
         c.drawText((pw?.let { String.format(Locale.US, "%.1f", it / 1000f) } ?: "--") + " kW", w - u * 0.6f, h * 0.35f + u * 1.4f,
             p(u * 1.1f, if (regen) GREEN else TEXT, Paint.Align.RIGHT))
         rr(c, w - u * 4.6f, h * 0.35f + u * 1.8f, w - u * 0.6f, h * 0.35f + u * 2.2f, PANEL)
         if (pw != null) rr(c, w - u * 4.6f, h * 0.35f + u * 1.8f, w - u * 4.6f + u * 4f * (abs(pw) / 5000f).coerceIn(0f, 1f),
             h * 0.35f + u * 2.2f, if (regen) GREEN else BLUE)
         val trip = synchronized(Bike.trip) { Bike.trip.km }
-        c.drawText("TRIP", w - u * 0.6f, h * 0.35f + u * 3.1f, p(u * 0.35f, MUTED, Paint.Align.RIGHT))
+        c.drawText(L.t("TRIP"), w - u * 0.6f, h * 0.35f + u * 3.1f, p(u * 0.35f, MUTED, Paint.Align.RIGHT))
         c.drawText(String.format(Locale.US, "%.1f km", trip), w - u * 0.6f, h * 0.35f + u * 4.1f, p(u * 0.9f, TEXT, Paint.Align.RIGHT))
 
         // bottom: temperatures or error
@@ -93,7 +93,7 @@ class SpeedoView(ctx: Context) : View(ctx) {
         val bottom = if (errs.isNotEmpty()) "⚠ " + errs.first()
             else "battery ${t.raw["TBAT"] ?: "--"}°  motor ${t.raw["TMOT"] ?: "--"}°  inverter ${t.raw["TINV"] ?: "--"}°C"
         c.drawText(bottom, w * 0.5f, h - u * 0.4f, p(u * 0.4f, if (errs.isNotEmpty()) RED else MUTED, Paint.Align.CENTER))
-        c.drawText("tap to close", w - u * 0.5f, h - u * 0.4f, p(u * 0.25f, Color.rgb(70, 76, 88), Paint.Align.RIGHT))
+        c.drawText(L.t("tap to close"), w - u * 0.5f, h - u * 0.4f, p(u * 0.25f, Color.rgb(70, 76, 88), Paint.Align.RIGHT))
 
         if (running) postInvalidateDelayed(200)
     }

@@ -18,7 +18,9 @@ read live data, set the clock, and put your own text and pictures on the stock M
 * **Custom MID screen:** your own dashboard (charge, power/regen, range, temperatures, mode, errors)
   drawn as a picture and pushed into the MID's map area.
   * From a laptop/Pi: `python -m gesits screen ble://GESITS` (or `bt://…`)
-  * Standalone on the bike: [firmware/esp32_mid_screen](firmware/esp32_mid_screen) (ESP32 over BLE)
+  * From a phone: the [Android app](android/) (recommended)
+  * Standalone on the bike: [firmware/esp32_mid_screen](firmware/esp32_mid_screen) (ESP32 over BLE).
+    **Experimental and not maintained**: the phone app does everything it does and more, so you don't need it.
 
   Three pages, 320×128 (the MID's map area). By default: **big** while riding, **details** and **trip** when stopped.
 
@@ -98,8 +100,8 @@ pictures. Simple, high-contrast graphics look best. `--legacy` uses the old offi
 
 1. ✅ Protocol recovered from the app, plus Python toolkit and simulator
 2. ✅ Cross-checked with GESITS Dashboard (real-bike behaviour, JPEG pictures, 20-char text, BLE path)
-3. ✅ Custom MID screen (`gesits screen`) and BLE connection (`ble://`), ESP32 firmware (not yet compiled)
-4. ⏳ First test on your bike: BLE connect, custom screen, then ESP32 build
-5. Android/web dashboard (phone or tablet as the MID)
-6. ESP32 + TFT replacement display (ESP32 classic, since it needs Bluetooth Classic SPP)
+3. ✅ Custom MID screen (`gesits screen`) and BLE connection (`ble://`), ESP32 firmware (experimental, not maintained)
+4. ✅ Android app (phone as the MID's brain): dashboard, range, clock, directions, trips, battery health
+5. ⏳ First test on your bike: connect, custom screen, MID acknowledgements
+6. Optional: ESP32 + TFT replacement display (ESP32 classic, since it needs Bluetooth Classic SPP)
 7. Stock MID firmware / wiring work (needs hands-on hardware access)

@@ -12,6 +12,9 @@ What it does, in a loop:
 
 The layout matches `python -m gesits screen --preview screen.png`, so you can design on a PC first.
 
+> **Experimental, not maintained.** The Android app (`android/`) does all of this and more; use it instead.
+> This folder is kept only as a starting point for someone who wants a phone-free setup.
+>
 > **Note:** this firmware still draws the earlier 350×220 layout. The MID's visible map area is
 > 320×128 (see docs/PROTOCOL.md), which the Android app and Python tools now use. Port
 > `ScreenRenderer.kt`'s layout before building this.

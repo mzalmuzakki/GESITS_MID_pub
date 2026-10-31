@@ -47,6 +47,24 @@ object Bike {
     /** True while the Speedometer or Diagnosis screen is visible: poll live values faster. */
     @Volatile var uiFast = false
 
+    /** Battery cycles / charging (guard with synchronized(battery)). */
+    val battery = BatteryTracker()
+    @Volatile var batteryLoaded = false
+    fun loadBattery(s: Settings) = synchronized(battery) { if (!batteryLoaded) { battery.load(s.batteryState); batteryLoaded = true } }
+
+    /** Speed warning state (service thread). */
+    val speedWarn = SpeedWarning()
+
+    /** Latest Google Maps instruction (from MapsNotifListener) and when it arrived. */
+    @Volatile var nav: NavParser.Instruction? = null
+    @Volatile var navAt = 0L
+    fun navFresh(now: Long = System.currentTimeMillis()) = nav != null && now - navAt < 90_000
+
+    /** When each write was last sent, and when the MID last confirmed it (MID replies with the key). */
+    val sentAt = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    val ackAt = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    val ACK_KEYS = listOf("MAPS", "TIME", "NAV", "TRIP", "ARROW")
+
     /** Automatic ride recording and alarms (used only by the service thread). */
     val recorder = RideRecorder()
     val alarms = AlarmMonitor()
@@ -89,6 +107,17 @@ class Settings(ctx: Context) {
     var parkLat: Float get() = p.getFloat("parkLat", 0f); set(v) = p.edit().putFloat("parkLat", v).apply()
     var parkLon: Float get() = p.getFloat("parkLon", 0f); set(v) = p.edit().putFloat("parkLon", v).apply()
     var parkTime: Long get() = p.getLong("parkTime", 0L); set(v) = p.edit().putLong("parkTime", v).apply()
+    /** "auto" (phone language), "en" or "id". */
+    var language: String get() = p.getString("lang", "auto")!!; set(v) = p.edit().putString("lang", v).apply()
+    /** Show Google Maps turn-by-turn directions on the MID (needs notification access). */
+    var navOn: Boolean get() = p.getBoolean("navOn", true); set(v) = p.edit().putBoolean("navOn", v).apply()
+    /** Speed warning on the MID above this speed (0 = off). */
+    var speedLimit: Int get() = p.getInt("speedLimit", 0); set(v) = p.edit().putInt("speedLimit", v).apply()
+    /** Notify when charging reaches this %. */
+    var chargeTarget: Int get() = p.getInt("chargeTarget", 80); set(v) = p.edit().putInt("chargeTarget", v).apply()
+    /** Daily battery-health log: "yyyymmdd:soh;..." (last 120 days). */
+    var sohLog: String get() = p.getString("sohLog", "")!!; set(v) = p.edit().putString("sohLog", v).apply()
+    var batteryState: String? get() = p.getString("batteryState", null); set(v) = p.edit().putString("batteryState", v).apply()
     /** Connect to the saved bike as soon as the app is opened. */
     var autoConnect: Boolean get() = p.getBoolean("autoConnect", true); set(v) = p.edit().putBoolean("autoConnect", v).apply()
     /** Stop the service after the bike has been off this many minutes (0 = never). */
@@ -156,11 +185,11 @@ class MidService : Service() {
 
     private fun goForeground(fromApp: Boolean) {
         val nm = getSystemService(NotificationManager::class.java)
-        nm.createNotificationChannel(NotificationChannel(CHANNEL, "Bike connection", NotificationManager.IMPORTANCE_LOW))
+        nm.createNotificationChannel(NotificationChannel(CHANNEL, L.t("Bike connection"), NotificationManager.IMPORTANCE_LOW))
         val open = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
         val n: Notification = Notification.Builder(this, CHANNEL)
             .setContentTitle("Gesits MID")
-            .setContentText("Connected to the bike's dashboard")
+            .setContentText(L.t("Connected to the bike's dashboard"))
             .setSmallIcon(android.R.drawable.stat_sys_data_bluetooth)
             .setContentIntent(open)
             .setOngoing(true)
@@ -188,6 +217,9 @@ class MidService : Service() {
                     // Show everything except the routine poll replies in the log/console.
                     val key = line.removePrefix("AT+").substringBefore('=').trim().uppercase()
                     if (key !in Mid.POLL_KEYS) Bike.log("<- $line")
+                    // The MID answers writes with the command's name (as GRID Mobile relies on): note the confirmation.
+                    val up = line.uppercase()
+                    Bike.ACK_KEYS.firstOrNull { up.contains(it) }?.let { Bike.ackAt[it] = System.currentTimeMillis() }
                 }) { k, v -> Bike.telemetry.put(k, v) }
             }
         }
@@ -208,6 +240,10 @@ class MidService : Service() {
         if (wait > 0) Thread.sleep(wait)
         l.write(cmd.toByteArray(Charsets.US_ASCII))
         lastSend = System.currentTimeMillis()
+        if (cmd.startsWith("AT+")) {
+            val k = cmd.substring(3).substringBefore('=').substringBefore('?').trim()
+            if (k in Bike.ACK_KEYS && cmd.contains('=')) Bike.sentAt[k] = lastSend
+        }
     }
 
     /**
@@ -234,12 +270,14 @@ class MidService : Service() {
         val t = Bike.telemetry
         val p = t.powerW?.let { Math.round(it / 100f) }   // 0.1 kW
         val trip = synchronized(Bike.trip) { "${Math.round(Bike.trip.km * 10)}/${Math.round(Bike.trip.energyWh)}" }
-        return listOf(pageFor(s, frameNo + 1), SimpleDateFormat("HH:mm", Locale.US).format(Date()), t.raw["SOC"], t.mode, t.gear,
+        val nav = if (s.navOn && Bike.navFresh()) Bike.nav else null
+        return listOf(pageFor(s, frameNo + 1), nav, SimpleDateFormat("HH:mm", Locale.US).format(Date()), t.raw["SOC"], t.mode, t.gear,
             p, t.raw["TBAT"], t.raw["TMOT"], t.raw["TINV"], t.errorMask, Bike.rangeKm()?.let { Math.round(it) }, trip, s.margins).joinToString("|")
     }
 
     private fun pageFor(s: Settings, n: Int): ScreenRenderer.Page {
         val moving = (Bike.telemetry.f("SPD") ?: 0f) > 3f
+        if (s.navOn && Bike.navFresh()) return ScreenRenderer.Page.NAV   // directions win while navigating
         return when (s.dashStyle) {
             "main" -> ScreenRenderer.Page.MAIN
             "trip" -> ScreenRenderer.Page.TRIP
@@ -291,6 +329,8 @@ class MidService : Service() {
     private fun saveState(s: Settings) {
         s.rangeState = synchronized(Bike.range) { Bike.range.save() }
         s.tripState = synchronized(Bike.trip) { Bike.trip.save() }
+        s.batteryState = synchronized(Bike.battery) { Bike.battery.save() }
+        BikeWidget.update(this)
     }
 
     private fun runLoop() {
@@ -301,6 +341,9 @@ class MidService : Service() {
         var backoff = 2000L; var offSince = 0L
         Bike.loadRange(s)
         Bike.loadTrip(s)
+        Bike.loadBattery(s)
+        L.init(s.language)
+        var lastWidget = 0L; var lastMapsCheck = 0L; var lastSpeedMsg = 0L; var navPart = 0
         while (Bike.running) {
             try {
                 if (link?.isOpen != true) {
@@ -331,6 +374,8 @@ class MidService : Service() {
                     Bike.telemetry.raw.clear()         // never pair old values with new ones (range learning)
                     send(Mid.VERSION_QUERY)            // MID firmware version (shown in the app)
                     send(Mid.ARROW_ON)                 // as GRID Mobile does on connect
+                    Mid.CYCLE_KEYS.forEach { send(Mid.query(it)) }   // does this MID report a cycle count?
+                    BikeWidget.update(this)
                 }
                 val now = System.currentTimeMillis()
                 val tm = Bike.telemetry
@@ -372,6 +417,26 @@ class MidService : Service() {
                     val gearNow = tm.gear
                     if (gearNow == "P" && lastGear == "D") Parking.capture(this, s)    // stand down / parked
                     if (gearNow != null) lastGear = gearNow
+                    val evs = synchronized(Bike.battery) {
+                        Bike.battery.update(tm.f("SOC"), tm.f("IBAT"), tm.f("SPD"), now, s.chargeTarget.toFloat())
+                    }
+                    evs.forEach { e ->
+                        when (e) {
+                            is BatteryTracker.Event.ChargeStarted -> Bike.log(L.t("Charging started"))
+                            is BatteryTracker.Event.TargetReached -> Alerts.notify(this, L.t("Battery reached") + " ${e.soc.toInt()}%")
+                            is BatteryTracker.Event.ChargeEnded -> Bike.log(L.t("Charging stopped"))
+                        }
+                    }
+                    tm.f("SOH")?.let { soh ->                                   // battery health: one entry per day
+                        val day = SimpleDateFormat("yyyyMMdd", Locale.US).format(Date())
+                        if (lastSohDay != day) {
+                            val log = s.sohLog.split(";").filter { it.isNotBlank() && !it.startsWith(day) } + "$day:${soh.toInt()}"
+                            s.sohLog = log.takeLast(120).joinToString(";"); lastSohDay = day
+                        }
+                    }
+                    Bike.speedWarn.limit = s.speedLimit
+                    Bike.speedWarn.update(tm.f("SPD"), now)
+                    if (now - lastWidget >= 60_000) { BikeWidget.update(this); lastWidget = now }
                     if (s.alarmsOn) {
                         Bike.alarms.socLow = s.socLow
                         Bike.alarms.evaluate(tm.f("SOC"), tm.f("TBAT"), tm.f("TMOT"), tm.f("SOH"), tm.errors)
@@ -394,11 +459,33 @@ class MidService : Service() {
                     Bike.rangeKm()?.let { send(Mid.trip(it)) }
                     lastTrip = now
                 }
-                val parts = Mid.splitNav(s.navText).ifEmpty { if (s.navDate) listOf(Mid.dateText()) else emptyList() }
-                if (parts.isNotEmpty() && now - lastNav >= 5000 && (parts.size > 1 || now - lastNav >= 60_000)) {
-                    navIdx %= parts.size
-                    send(Mid.nav(parts[navIdx++]))     // one fixed line: refreshed once a minute only
-                    lastNav = now
+                val nav = if (s.navOn && Bike.navFresh(now)) Bike.nav else null
+                if (Bike.speedWarn.active) {
+                    if (now - lastSpeedMsg >= 2000) {                       // speed warning first
+                        send(Mid.nav("! ${tm.f("SPD")?.toInt() ?: 0} > ${s.speedLimit} km/h"))
+                        lastSpeedMsg = now; lastNav = 0L
+                    }
+                } else if (nav != null) {
+                    if (now - lastNav >= 3000) {                            // directions: turn+distance, then street
+                        val first = (navTurnWord(nav.turn) + " " + (nav.distance ?: "")).trim()
+                        val parts = listOf(first) + Mid.splitNav(nav.street).take(1)
+                        navPart %= parts.size
+                        send(Mid.nav(parts[navPart++])); lastNav = now
+                    }
+                } else {
+                    val parts = Mid.splitNav(s.navText).ifEmpty { if (s.navDate) listOf(Mid.dateText()) else emptyList() }
+                    if (parts.isNotEmpty() && now - lastNav >= 5000 && (parts.size > 1 || now - lastNav >= 60_000)) {
+                        navIdx %= parts.size
+                        send(Mid.nav(parts[navIdx++]))     // one fixed line: refreshed once a minute only
+                        lastNav = now
+                    }
+                }
+                val mapsSent = Bike.sentAt["MAPS"] ?: 0L
+                val mapsAck = Bike.ackAt["MAPS"] ?: 0L
+                if (mapsAck > 0L && mapsSent > mapsAck && now - mapsSent > 6000 && mapsSent != lastMapsCheck) {
+                    lastMapsCheck = mapsSent
+                    lastFrameKey = ""                      // MID did not confirm the last picture: send it again
+                    Bike.log("MID did not confirm the picture - resending")
                 }
                 if (s.screenMode != "off" && now - lastFrame >= s.frameSeconds * 1000L) {
                     val t0 = System.currentTimeMillis()
@@ -438,6 +525,14 @@ class MidService : Service() {
     }
 
     private var lastGear: String? = null
+    private var lastSohDay: String? = null
+
+    private fun navTurnWord(t: NavParser.Turn) = L.t(when (t) {
+        NavParser.Turn.LEFT -> "LEFT"; NavParser.Turn.RIGHT -> "RIGHT"
+        NavParser.Turn.SLIGHT_LEFT -> "KEEP LEFT"; NavParser.Turn.SLIGHT_RIGHT -> "KEEP RIGHT"
+        NavParser.Turn.UTURN -> "U-TURN"; NavParser.Turn.ROUNDABOUT -> "ROUNDABOUT"
+        NavParser.Turn.STRAIGHT -> "STRAIGHT"; NavParser.Turn.ARRIVE -> "ARRIVED"; NavParser.Turn.NONE -> ""
+    })
 
     private fun rideFinished(r: Ride, s: Settings) {
         RideStore.add(this, r)

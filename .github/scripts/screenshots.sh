@@ -11,7 +11,8 @@ mkdir -p shots
 adb shell settings put secure immersive_mode_confirmations confirmed
 shot() { sleep "$2"; adb exec-out screencap -p > "shots/$1.png"; }
 swipe() { adb shell input swipe 540 1900 540 500 400; }
-open() { adb shell am force-stop $PKG; adb shell am start -W -n $PKG/.MainActivity --ez demo true ${1:+--es open $1}; }
+open() { adb shell am force-stop $PKG; adb shell am start -W -n $PKG/.MainActivity --ez demo true ${1:+--es open $1} $2; }
+adb logcat -c
 
 open "";          shot 01-home 5
 swipe;            shot 02-home-2 2
@@ -25,6 +26,10 @@ swipe;            shot 09-tools-2 2
 open diagnosis;   shot 10-diagnosis 5
 swipe;            shot 11-diagnosis-2 2
 open speedo;      shot 12-speedometer 6
+open mid "--ez nav true";            shot 13-mid-directions 5
+open "" "--es lang id";              shot 14-home-indonesia 5
+open mid "--es lang id --ez nav true"; shot 15-mid-indonesia 5
+open trips "--es lang id";           shot 16-trips-indonesia 5
 
 {
   echo "== Foreground (Speedometer open) =="
@@ -36,3 +41,12 @@ open speedo;      shot 12-speedometer 6
 } > shots/memory.txt 2>&1
 cat shots/memory.txt
 adb shell am force-stop $PKG
+
+# Fail the job (and so block publishing) if the app crashed anywhere above.
+adb logcat -d > shots/logcat.txt 2>&1
+if grep -q "FATAL EXCEPTION" shots/logcat.txt; then
+  echo "APP CRASHED:"; grep -A 25 "FATAL EXCEPTION" shots/logcat.txt
+  exit 1
+fi
+rm -f shots/logcat.txt
+echo "No crashes."

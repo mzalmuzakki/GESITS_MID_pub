@@ -5,6 +5,23 @@ Versions are **v\<major\>.\<xx\>.\<yy\>** (see `android/version.properties`):
 * **xx**: feature milestone (new or changed things you notice); resets yy
 * **yy**: fixes and polish only
 
+## v0.12.00
+* **Battery health and cycles** (Trips tab): equivalent full cycles and charging sessions counted
+  from the day the app is installed, usable capacity worked out from your rides, and a battery-health
+  (SOH) trend. The app also asks the MID for a lifetime cycle count; if your bike reports one, it is shown too.
+* **Charging card** (Home): shown while charging, with % per hour, time to 80/90/100 % and a
+  notification when your target is reached.
+* **Turn-by-turn directions on the MID**: while Google Maps is navigating, the MID picture shows the
+  turn arrow, distance, street and arrival time, and the text line shows the next turn. Needs
+  notification access (only Google Maps' notifications are read; nothing leaves the phone).
+* **Speed warning**: optional limit (50/60/70/80 km/h); after 3 s over it the MID text line warns you.
+* **Bahasa Indonesia**: the whole app, notifications and the MID picture (Tools → Language).
+* **Home-screen widget**: battery % and range at a glance.
+* **MID accepted**: shows which writes (picture, clock, text, range) the MID confirmed; a picture
+  that wasn't confirmed is re-sent.
+* Build check: every screen is opened in an Android emulator, and the APK is published only if
+  nothing crashed.
+
 ## v0.11.00
 Auto-connect: the app connects to the saved bike as soon as it is opened (turns Bluetooth on via
 Android's prompt if needed). Switch it off in Tools → Keep connected.
