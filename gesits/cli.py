@@ -117,6 +117,37 @@ def cmd_encode(args) -> None:
             f.write(payload)
 
 
+SCREEN_KEYS = ["SOC", "MODE", "PARK", "VBAT", "IBAT", "ODO", "TBAT", "TMOT", "TINV", "ERR"]
+
+
+def cmd_screen(args) -> None:
+    from . import screen
+
+    if args.uri is None:  # offline preview with sample data
+        img = screen.render(screen.sample_telemetry())
+        b64, q, _ = mapimage.jpeg_to_base64(img, max_chars=args.max_chars)
+        img.save(args.preview or "screen_preview.png")
+        print(f"preview -> {args.preview or 'screen_preview.png'} ({len(b64)} base64 chars at quality {q})")
+        return
+    with _connect(args) as c:
+        while True:
+            t0 = time.monotonic()
+            tel = c.poll(SCREEN_KEYS)
+            img = screen.render(tel)
+            b64, q, _ = mapimage.jpeg_to_base64(img, max_chars=args.max_chars)
+            c.show_jpeg(b64)
+            if tel.range_km is not None:
+                c.show_range(tel.range_km)
+            if args.text:
+                c.show_text(args.text)
+            if args.preview:
+                img.save(args.preview)
+            print(f"frame sent: {len(b64)} chars, q{q}, SOC={tel.raw.get('SOC')} P={tel.power_w} W", flush=True)
+            if args.once:
+                return
+            time.sleep(max(0.0, args.interval - (time.monotonic() - t0)))
+
+
 def cmd_map_off(args) -> None:
     with _connect(args) as c:
         c.hide_map()
@@ -173,6 +204,15 @@ def main(argv=None) -> None:
     sp.add_argument("--text", default="", help="also show this text (AT+NAV)")
     sp.add_argument("--preview", help="save the exact JPEG that is sent")
     sp.add_argument("--hold", type=float, default=0, help="legacy only: seconds, then map off")
+
+    sp = add("screen", cmd_screen, "custom MID screen: live data drawn as a picture", uri=False)
+    sp.add_argument("uri", nargs="?", help="omit for an offline preview with sample data")
+    sp.add_argument("--reply-timeout", type=float, default=0.5)
+    sp.add_argument("--interval", type=float, default=3.0, help="seconds between frames")
+    sp.add_argument("--max-chars", type=int, default=mapimage.MAPS_MAX_CHARS)
+    sp.add_argument("--text", default="", help="also show this text line (AT+NAV)")
+    sp.add_argument("--preview", help="save the last rendered frame here")
+    sp.add_argument("--once", action="store_true")
 
     add("map-off", cmd_map_off, "legacy: AT+MAPON=\"0\" + AT+MAPEND")
 

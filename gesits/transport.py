@@ -5,6 +5,8 @@ URIs:
                                      Pair the bike first. Channel defaults to 1.
   serial:///dev/rfcomm0              Any serial port via pyserial (e.g. a Bluetooth COM port
   serial://COM5                      on Windows, or /dev/rfcomm0 from `rfcomm bind`).
+  ble://GESITS                       Bluetooth LE, characteristic FFF2 (pip install bleak).
+  ble://AA:BB:CC:DD:EE:FF            Same, by address.
   tcp://127.0.0.1:3333               The bundled simulator (python -m gesits sim).
 """
 from __future__ import annotations
@@ -91,4 +93,7 @@ def open_transport(uri: str, timeout: float = 10.0) -> Transport:
     if u.scheme == "tcp":
         s = socket.create_connection((u.hostname, u.port or 3333), timeout=timeout)
         return SocketTransport(s)
-    raise SystemExit(f"Unsupported URI {uri!r}; use bt://, serial:// or tcp://")
+    if u.scheme == "ble":
+        from .ble import BleTransport
+        return BleTransport(u.netloc or "GESITS", log=print)
+    raise SystemExit(f"Unsupported URI {uri!r}; use bt://, ble://, serial:// or tcp://")

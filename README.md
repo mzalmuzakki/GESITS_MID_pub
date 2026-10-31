@@ -8,6 +8,13 @@ read live data, set the clock, and put your own text and pictures on the stock M
   community GESITS Dashboard app; the latter's notes record what was verified on real bikes.
 * **Python toolkit:** `gesits/`. Runs on a laptop or a Raspberry Pi, so a Pi with a screen can
   serve as a replacement display.
+* **Custom MID screen:** your own dashboard (charge, power/regen, range, temperatures, mode, errors)
+  drawn as a picture and pushed into the MID's map area.
+  * From a laptop/Pi: `python -m gesits screen ble://GESITS` (or `bt://…`)
+  * Standalone on the bike: [firmware/esp32_mid_screen](firmware/esp32_mid_screen) (ESP32 over BLE)
+
+  <img src="docs/img/custom_screen.png" width="350"> <img src="docs/img/custom_screen_error.png" width="350">
+
 * **Simulator:** a fake bike, so you can develop without the motorcycle.
 
 > Most commands are used daily by the community GESITS Dashboard app, but this toolkit itself has
@@ -28,6 +35,7 @@ python -m gesits monitor bt://AA:BB:CC:DD:EE:FF            # channel 1 by defaul
 python -m gesits monitor bt://AA:BB:CC:DD:EE:FF/2 --screen diag
 python -m gesits monitor serial://COM5                     # Windows Bluetooth COM port
 python -m gesits monitor serial:///dev/rfcomm0             # after `sudo rfcomm bind 0 <MAC> 1`
+python -m gesits monitor ble://GESITS                      # Bluetooth LE (pip install bleak)
 
 # 3. Write to the MID
 python -m gesits time  bt://AA:BB:CC:DD:EE:FF                     # set the MID clock
@@ -35,7 +43,12 @@ python -m gesits text  bt://AA:BB:CC:DD:EE:FF "Halo Gesits"        # 20-char tex
 python -m gesits range bt://AA:BB:CC:DD:EE:FF 57.5                 # range figure (km)
 python -m gesits image bt://AA:BB:CC:DD:EE:FF logo.png --preview sent.jpg   # picture
 
-# 4. Explore: send any command, see the raw reply
+# 4. Custom MID screen (live data drawn as a picture every 3 s)
+python -m gesits screen --preview screen.png                     # offline preview, sample data
+python -m gesits screen ble://GESITS                              # over Bluetooth LE (pip install bleak)
+python -m gesits screen bt://AA:BB:CC:DD:EE:FF                    # over Bluetooth Classic
+
+# 5. Explore: send any command, see the raw reply
 python -m gesits raw bt://AA:BB:CC:DD:EE:FF "AT+SPD?"
 
 # Offline: see exactly what JPEG would be sent (350x220, <= 7000 base64 chars)
@@ -67,7 +80,8 @@ pictures. Simple, high-contrast graphics look best. `--legacy` uses the old offi
 
 1. ✅ Protocol recovered from the app, plus Python toolkit and simulator
 2. ✅ Cross-checked with GESITS Dashboard (real-bike behaviour, JPEG pictures, 20-char text, BLE path)
-3. ⏳ Run this toolkit on your bike; confirm CBAT/TRT/ERR
-4. Android/web dashboard (phone or tablet as the MID)
-5. ESP32 + TFT replacement display (ESP32 classic, since it needs Bluetooth Classic SPP)
-6. Stock MID firmware / wiring work (needs hands-on hardware access)
+3. ✅ Custom MID screen (`gesits screen`) and BLE connection (`ble://`), ESP32 firmware (not yet compiled)
+4. ⏳ First test on your bike: BLE connect, custom screen, then ESP32 build
+5. Android/web dashboard (phone or tablet as the MID)
+6. ESP32 + TFT replacement display (ESP32 classic, since it needs Bluetooth Classic SPP)
+7. Stock MID firmware / wiring work (needs hands-on hardware access)
