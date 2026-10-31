@@ -296,6 +296,34 @@ class MainActivity : Activity() {
         }
         root.addView(rangeRow)
 
+        header(root, "Console (send your own commands)")
+        root.addView(TextView(this).apply {
+            text = "Type an AT command, e.g. AT+SPD? - replies appear in the Log below. Queries ending " +
+                "in ? only read. Be careful with commands that set things (=): only send ones you understand."
+            setTextColor(Color.GRAY)
+        })
+        val cmdIn = EditText(this).apply {
+            hint = "AT+VER?"; setTextColor(Color.WHITE); setHintTextColor(Color.GRAY)
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS
+        }
+        root.addView(cmdIn)
+        val consoleRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        button(consoleRow, "Send") {
+            val c = cmdIn.text.toString().trim()
+            when {
+                !Bike.connected -> toast("Connect to the bike first")
+                c.isEmpty() -> {}
+                c.uppercase().startsWith("AT+ODO=") -> toast("Odometer writes are blocked in this app")
+                else -> Bike.outbox.add(c + "\r\n")
+            }
+        }
+        button(consoleRow, "Probe hidden features") {
+            if (!Bike.connected) { toast("Connect to the bike first"); return@button }
+            Mid.PROBE_KEYS.forEach { Bike.outbox.add(Mid.query(it)) }
+            toast("Sent ${Mid.PROBE_KEYS.size} read-only queries - watch the Log, then send me a screenshot")
+        }
+        root.addView(consoleRow)
+
         header(root, "Keep connected in the background")
         bgInfo = TextView(this).apply { setTextColor(Color.WHITE) }
         root.addView(bgInfo)
@@ -319,6 +347,12 @@ class MainActivity : Activity() {
         root.addView(bgRow)
 
         header(root, "Log")
+        button(root, "Copy whole log") {
+            val text = synchronized(Bike.log) { Bike.log.joinToString("\n") }
+            getSystemService(android.content.ClipboardManager::class.java)
+                .setPrimaryClip(android.content.ClipData.newPlainText("Gesits MID log", text))
+            toast("Log copied - paste it in the chat")
+        }
         logView = TextView(this).apply { typeface = Typeface.MONOSPACE; setTextColor(Color.GRAY); textSize = 11f }
         root.addView(logView)
 
@@ -353,6 +387,6 @@ class MainActivity : Activity() {
         val pm = getSystemService(android.os.PowerManager::class.java)
         bgInfo.text = if (pm.isIgnoringBatteryOptimizations(packageName)) "Battery restriction: off (good)"
                       else "Battery restriction: ON - the phone may cut the connection in the background"
-        logView.text = synchronized(Bike.log) { Bike.log.toList().takeLast(25).joinToString("\n") }
+        logView.text = synchronized(Bike.log) { Bike.log.toList().takeLast(60).joinToString("\n") }
     }
 }

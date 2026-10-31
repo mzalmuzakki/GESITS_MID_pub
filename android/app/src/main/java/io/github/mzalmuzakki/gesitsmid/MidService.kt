@@ -39,7 +39,7 @@ object Bike {
 
     fun log(msg: String) = synchronized(log) {
         log.addLast(java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US).format(java.util.Date()) + " " + msg)
-        while (log.size > 60) log.removeFirst()
+        while (log.size > 300) log.removeFirst()
     }
 }
 
@@ -137,7 +137,13 @@ class MidService : Service() {
         val addr = s.address ?: run { setStatus("Choose the bike first"); return null }
         val device = adapter.getRemoteDevice(addr)
         val onData: (ByteArray) -> Unit = { bytes ->
-            synchronized(parser) { parser.feed(bytes) { k, v -> Bike.telemetry.put(k, v) } }
+            synchronized(parser) {
+                parser.feed(bytes, raw = { line ->
+                    // Show everything except the routine poll replies in the log/console.
+                    val key = line.removePrefix("AT+").substringBefore('=').trim().uppercase()
+                    if (key !in Mid.POLL_KEYS) Bike.log("<- $line")
+                }) { k, v -> Bike.telemetry.put(k, v) }
+            }
         }
         val onClosed: () -> Unit = { Bike.connected = false; setStatus("Connection lost - retrying") }
         val l: MidLink = if (s.linkType == "ble") BleLink(this, device, onData, onClosed) else ClassicLink(device, onData, onClosed)
@@ -188,7 +194,11 @@ class MidService : Service() {
                 }
                 val now = System.currentTimeMillis()
 
-                while (true) send(Bike.outbox.poll() ?: break)
+                while (true) {
+                    val cmd = Bike.outbox.poll() ?: break
+                    send(cmd)
+                    if (!cmd.startsWith("AT+MAPS")) Bike.log("-> " + cmd.trim())
+                }
 
                 if (now - lastPoll >= 200) {
                     send(Mid.query(Mid.POLL_KEYS[keyIdx]))

@@ -48,6 +48,17 @@ object Mid {
         return parts
     }
 
+    /**
+     * Read-only queries for the "probe" button: names seen in either app plus plausible guesses.
+     * Only "AT+NAME?" is sent - never a write. Unknown names just get an error reply.
+     */
+    val PROBE_KEYS = listOf(
+        "SOC2", "NUMBAT", "FWD", "CBAT", "TRIP", "TIME", "NAV", "MAPS", "MAPON", "RPM", "PWR", "CRZ", "REM",
+        "VER", "VERSION", "FW", "HW", "SW", "SN", "ID", "NAME", "MODEL", "VIN", "DATE", "BT", "BLE", "MAC",
+        "LIGHT", "BRIGHT", "THEME", "LANG", "UNIT", "MENU", "PAGE", "SCREEN", "LAYOUT", "LOGO", "MODE2",
+        "RANGE", "AVG", "ECO", "KM", "TEMP", "VOLT", "CURR", "CAP", "CYCLE", "CHG", "HELP", "LIST", "ALL",
+    )
+
     val ERROR_BITS = mapOf(
         0 to "Inverter over temperature", 1 to "Motor over temperature", 2 to "Motor fault",
         3 to "Hall sensor fault", 4 to "Throttle fault", 5 to "Controller fault",
@@ -77,13 +88,15 @@ class Telemetry {
 class LineParser {
     private val buf = StringBuilder()
 
-    fun feed(data: ByteArray, out: (String, String) -> Unit) {
+    /** [out] gets KEY=value lines; [raw] gets every non-empty line as received (for the console). */
+    fun feed(data: ByteArray, raw: (String) -> Unit = {}, out: (String, String) -> Unit) {
         buf.append(String(data, Charsets.US_ASCII))
         while (true) {
             val nl = buf.indexOf("\n")
             if (nl < 0) break
             var line = buf.substring(0, nl).trim()
             buf.delete(0, nl + 1)
+            if (line.isNotEmpty()) raw(line)
             if (line.startsWith("AT+")) line = line.substring(3)
             val eq = line.indexOf('=')
             if (eq > 0) out(line.substring(0, eq).trim().uppercase(), line.substring(eq + 1).trim())
