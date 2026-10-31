@@ -1,6 +1,11 @@
-"""Encode/decode the 164x88, 4-colour bitmap the Gesits MID shows in map mode.
+"""Pictures for the MID map area (AT+MAPS).
 
-Reconstructed from NavigationGoogleFragment.generateBitmapString() in the app:
+Current format (GESITS Dashboard, works on real bikes): a base64 JPEG, typically
+350 x 220 px, at most 7000 base64 chars; quality is lowered until it fits.
+MID limits noted there: width max 350, height max ~500. See jpeg_to_base64().
+
+Legacy format (old official app, possibly older MID firmware): a 164x88 4-colour
+bitmap, described below. Reconstructed from NavigationGoogleFragment.generateBitmapString() in the app:
 
 * the snapshot is scaled to 164 x 88 px (nearest neighbour, filter=false);
 * every pixel becomes a 2-bit colour code (see classify());
@@ -106,3 +111,43 @@ def codes_to_image(codes: Sequence[Sequence[int]], scale: int = 4):
     img = Image.new("RGB", (WIDTH, HEIGHT))
     img.putdata([PREVIEW_PALETTE[c] for row in codes for c in row])
     return img.resize((WIDTH * scale, HEIGHT * scale), Image.NEAREST) if scale > 1 else img
+
+
+# --- Current format: base64 JPEG ---------------------------------------------
+
+JPEG_W, JPEG_H = 350, 220
+MAPS_MAX_CHARS = 7000
+MID_MAX_W, MID_MAX_H = 350, 500
+
+
+def jpeg_to_base64(path_or_image, width: int = JPEG_W, height: int = JPEG_H,
+                   max_chars: int = MAPS_MAX_CHARS, quality: int = 85):
+    """Crop-to-fill to width x height, then JPEG-encode with falling quality until the
+    base64 text fits in max_chars (same approach as GESITS Dashboard).
+
+    Returns (base64_text, quality_used, PIL.Image actually encoded).
+    """
+    import base64
+    import io
+    from PIL import Image
+
+    if not (0 < width <= MID_MAX_W and 0 < height <= MID_MAX_H):
+        raise ValueError(f"MID limit is {MID_MAX_W} x {MID_MAX_H} px")
+    img = path_or_image if isinstance(path_or_image, Image.Image) else Image.open(path_or_image)
+    img = img.convert("RGB")
+    ratio = width / height
+    iw, ih = img.size
+    if iw / ih > ratio:
+        sw = round(ih * ratio)
+        box = ((iw - sw) // 2, 0, (iw - sw) // 2 + sw, ih)
+    else:
+        sh = round(iw / ratio)
+        box = (0, (ih - sh) // 2, iw, (ih - sh) // 2 + sh)
+    img = img.crop(box).resize((width, height), Image.LANCZOS)
+    for q in list(range(min(quality, 95), 0, -3)) + [1]:
+        buf = io.BytesIO()
+        img.save(buf, "JPEG", quality=q, optimize=True)
+        b64 = base64.b64encode(buf.getvalue()).decode("ascii")
+        if len(b64) <= max_chars:
+            return b64, q, img
+    raise ValueError("picture too detailed to fit; use a simpler picture or a smaller size")

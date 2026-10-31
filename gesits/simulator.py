@@ -26,6 +26,7 @@ class FakeBike:
         self.verbose = verbose
         self.clock = None
         self.nav_text = None
+        self.range_km = None
         self.map_on = False
         self.frames = 0
 
@@ -33,10 +34,10 @@ class FakeBike:
         t = time.monotonic() - self.t0
         speed = int(35 + 25 * math.sin(t / 6))
         values = {
-            "SOC": 82, "SOC2": 0, "SOH": 97, "NUMBAT": 1, "MODE": int(t / 20) % 3,
-            "TBAT": 31, "VBAT": 72, "CBAT": 18, "TRIP": 12,
-            "TMOT": 44, "TINV": 39, "ERR": "0000", "PARK": 0, "FWD": 1,
-            "TRT": max(0, speed * 2), "SPD": speed,
+            "SPD": speed, "SOC": 82, "SOH": 97, "ODO": round(1234.5 + t * speed / 3600, 1),
+            "MODE": int(t / 20) % 3, "PARK": 0, "VBAT": 71.8, "IBAT": round(speed * 0.4, 1),
+            "CBAT": 18, "TBAT": 31, "TMOT": 44, "TINV": 39, "ERR": 0, "TRT": speed * 2,
+            "SOC2": 0, "NUMBAT": 1, "FWD": 1,
         }
         v = values.get(key)
         return None if v is None else str(v)
@@ -56,13 +57,20 @@ class FakeBike:
             self.nav_text = arg
         elif key == "MAPON":
             self.map_on = arg == "1"
+        elif key == "TRIP":
+            self.range_km = arg
         elif key == "MAPS":
             self.frames += 1
-            if self.preview_dir and len(arg) == mapimage.HEX_LENGTH:
+            kind = "base64 JPEG" if arg.startswith("/9j/") else "legacy hex"
+            if self.preview_dir:
                 self.preview_dir.mkdir(parents=True, exist_ok=True)
-                out = self.preview_dir / f"mid_frame_{self.frames:04d}.png"
-                mapimage.codes_to_image(mapimage.decode_hex(arg)).save(out)
-            arg = f"<{len(arg)} hex chars>"
+                stem = self.preview_dir / f"mid_frame_{self.frames:04d}"
+                if kind == "base64 JPEG":
+                    import base64
+                    stem.with_suffix(".jpg").write_bytes(base64.b64decode(arg))
+                elif len(arg) == mapimage.HEX_LENGTH:
+                    mapimage.codes_to_image(mapimage.decode_hex(arg)).save(stem.with_suffix(".png"))
+            arg = f"<{len(arg)} chars, {kind}>"
         if self.verbose:
             print(f"[bike] {key} {arg}", flush=True)
         return None

@@ -1,110 +1,121 @@
 # Gesits G1 MID Bluetooth protocol
 
-Reconstructed by disassembling the Gesits Android app (`com.gesits.app.mobile`, file
-`Gesits_Mod_1.5.2.apk`). **Nothing here has been checked against a real bike yet.** It is
-what the app sends and what it expects back. Each section says how sure we are.
+Two sources:
 
-## 1. Transport
-
-| Item | Value | Confidence |
+| | App | What it gives us |
 |---|---|---|
-| Radio | **Bluetooth Classic** (not BLE) | certain (app uses `BluetoothSocket`) |
-| Profile | Serial Port Profile (RFCOMM) | certain |
-| UUID | `00001101-0000-1000-8000-00805F9B34FB` (standard SPP) | certain |
-| Pairing | Press the Bluetooth button on the left handlebar with ignition ON, then pair from the phone | from dealer description |
-| Encoding | Plain ASCII text | certain |
-| Line ending | `\r\n` (CR LF) on commands and on replies | certain |
-| RFCOMM channel | Not in the app (it asks SDP); usually **1** for SPP modules | guess |
+| **A** | Old official Gesits app `com.gesits.app.mobile` 1.5.2 (`Gesits_Mod_1.5.2.apk`) | What the factory app sends. Code only, not tested by us. |
+| **B** | Community **GESITS Dashboard** `com.gesits.dashboard` 1.0.1.17 (web app https://gesits.pages.dev in an Android wrapper) | Used on real bikes. Its code comments record fixes "verified directly on the motor". **Where A and B disagree, follow B.** |
 
-The app reads in 1024-byte chunks and joins them until it sees `\r\n`.
+Labels used below: ✅ = confirmed on a bike (according to B's comments) · 🟡 = used by a working app but no
+explicit confirmation · ❓ = unknown or guessed.
+
+## 1. Connection
+
+The MID has **two** Bluetooth interfaces. Both carry the same text protocol.
+
+### Bluetooth Classic (main path, used by both apps) ✅
+* SPP / RFCOMM, UUID `00001101-0000-1000-8000-00805F9B34FB`.
+* Pairing: ignition ON, press the Bluetooth button on the left handlebar, then pair.
+* B tries the SPP UUID first, then falls back to `createRfcommSocket(1)`, i.e. **channel 1**.
+
+### Bluetooth LE (alternative) 🟡
+* Device name **`GESITS`**. Characteristic **`FFF2`** (`0000fff2-0000-1000-8000-00805f9b34fb`) does
+  NOTIFY + READ + WRITE (seen in nRF Connect). B uses service UUID
+  `0000fff1-0000-1000-8000-00805f9b34fb` as its default, and lets the user change both UUIDs.
+* Write **with response**. FFF2 has no WRITE_NO_RESPONSE, and such writes are silently ignored.
+* Replies arrive as notifications on FFF2.
+* Long commands (AT+MAPS) don't fit in one write. Send `AT+MAPS="`, wait 50 ms, then the base64 text in
+  **100-character pieces with 30 ms gaps**, then `"\r\n`. This is "exactly the protocol of the ESP32 sketch
+  that successfully sent to the MID".
+* B says the BT module sometimes "gets stuck" in LE mode, and then LE is the way in. LE is also the
+  **only** route for a plain web page in phone Chrome (Web Bluetooth can't do Classic).
+
+### Framing ✅
+* Plain ASCII, one command per line, ending `\r\n`.
+* Keep **≥ 30 ms between commands** and **one command in flight**. Don't flood the link: B holds back
+  polling while a picture is being written, otherwise the MID channel backs up and the map lags.
+* Replies are lines of `KEY=value\r\n`. Sometimes they come back with an `AT+` prefix, so strip it.
 
 ## 2. Reading values: `AT+<KEY>?`
 
-Request:  `AT+SPD?\r\n`
-Reply:    `SPD=<value>\r\n`
+Request: `AT+SPD?\r\n` → reply `SPD=42\r\n`. Values can be decimals (`VBAT=71.8`).
 
-The app takes the text after `KEY=` and converts it with `toInt()`. It sends **one key at a
-time** in round-robin. Each screen polls its own list:
-
-| Screen in app | Keys polled (in order) |
-|---|---|
-| Home (Beranda) | `SOC2 SOC NUMBAT SOH MODE` |
-| Battery | `SOC SOH TBAT SOC2 VBAT CBAT NUMBAT TRIP` |
-| Diagnostic (speedometer/throttle) | `TMOT TINV ERR PARK FWD TRT SPD` |
-| Error detail | `ERR` (repeatedly) |
-
-| Key | Meaning (from the app's labels) | Notes |
+| Key | Meaning | Status |
 |---|---|---|
-| `SOC` | State of charge, battery 1, % | shown as `NN %`; red when ≤ 20 |
-| `SOC2` | State of charge, battery 2, % | used when `NUMBAT` = 2 |
-| `NUMBAT` | Number of batteries (1 or 2) | |
-| `SOH` | State of health, % | |
-| `MODE` | Drive mode | `0`=ECO, `1`=URBAN, `2`=SPORT |
-| `TBAT` | Battery temperature | integer, unit text from app resources |
-| `VBAT` | Battery voltage | integer |
-| `CBAT` | Battery current | integer |
-| `TRIP` | Trip | polled but not displayed |
-| `TMOT` | Motor temperature | integer |
-| `TINV` | Inverter (controller) temperature | integer |
-| `ERR` | Error code | `0000` = no error |
-| `PARK` | Parking status | shown as ON/OFF |
-| `FWD` | Forward/reverse status | shown as ON/OFF |
-| `TRT` | Throttle | integer |
-| `SPD` | Speed | integer (km/h presumably) |
+| `SPD` | Speed, km/h | ✅ |
+| `SOC` | Battery charge, % | ✅ |
+| `ODO` | Odometer, km | ✅ |
+| `MODE` | Drive mode: **0 = ECO, 1 = URBAN, 2 = SPORT** | ✅ |
+| `PARK` | **1 = PARK, 0 = DRIVE**. A's reading was the wrong way round. | ✅ |
+| `VBAT` | Battery voltage, V | 🟡 |
+| `IBAT` | Battery current, A (negative = regen); power = VBAT × IBAT | 🟡 |
+| `SOH` | Battery health, % (B: < 80 "declining", < 60 "bad") | 🟡 |
+| `TBAT` | Battery temperature, °C (B warns at 45, critical at 55) | 🟡 |
+| `TMOT` | Motor temperature, °C (B warns at 70, critical at 85) | 🟡 |
+| `TINV` | Inverter/controller temperature, °C | 🟡 |
+| `TRT` | Throttle | 🟡 (B: the "real throttle data") |
+| `CBAT` | Battery value, meaning unclear | ❓ |
+| `ERR` | Error bitmask, see below | 🟡 |
+| `FWD` | **Not** the drive mode. Stays 1 whatever you do. | ✅ unclear |
+| `SOC2`, `NUMBAT` | Second battery / battery count (A only) | ❓ |
+| `PWR` | **Not supported**: the MID answers with an error | ✅ |
 
-Numbers the app works out itself (not sent by the bike):
+B's poll schedule: every 100–200 ms it sends the single most overdue key. Periods: SPD/IBAT 0.5 s ·
+VBAT 1 s · TRT/ODO 2 s · SOC 4 s · ERR/MODE/PARK/CBAT 8 s · TINV/TMOT/TBAT 15 s · SOH 30 s.
 
-* **Range** = `SOC × 1.0` km
-* **Energy left** = `(SOC + SOC) × 0.014` kWh (a bug: the app adds `SOC` to itself, not `SOC2`)
+### ERR bits 🟡 (B: "adjust bit positions to the motor firmware"; not official)
+
+| Bit | Meaning |
+|---|---|
+| 0 | Inverter over temperature |
+| 1 | Motor over temperature |
+| 2 | Motor fault |
+| 3 | Hall sensor fault |
+| 4 | Throttle fault |
+| 5 | Controller fault |
+| 6 | Over voltage |
+| 7 | Under voltage |
+| 11 | `ERR=0800` reported by a user together with a real throttle problem. Unofficial. |
+
+`0`/`0000` = no error. The value is 4 digits, so it is read as **hex** (`0800` → bit 11). B's own code parses
+it as decimal unless it starts with `0x`, which contradicts its own `0800` = bit 11 note.
 
 ## 3. Writing to the MID
 
-| Purpose | Exact bytes | When the app sends it |
+| Command | Effect | Status |
 |---|---|---|
-| Set clock | `AT+TIME="HHmm"\r\n` (e.g. `AT+TIME="0705"`) | every 1 s while connected |
-| Enter map mode | `AT+MAPON="1"\r\n` | before the first map frame |
-| Navigation text | `AT+NAV="<text>"\r\n` | with every map frame |
-| Map picture | `AT+MAPS="<7216 hex chars>"\r\n` | with every map frame |
-| Leave map mode | `AT+MAPON="0"\r\n` then `AT+MAPEND\r\n` | navigation stopped |
-| End session | `AT+END` (**no** CR LF) | on disconnect |
-| Logout | `AT++END\r\n` (double `+`, sic) | on account logout |
+| `AT+TIME="HHmm"` | Set the MID clock (sent every second by A) | 🟡 |
+| `AT+NAV="<text>"` | Text line on the MID, **max 20 characters** | ✅ |
+| `AT+TRIP="12.3"` | The **range** (remaining km) figure on the MID, sent every 3 s | 🟡 |
+| `AT+MAPS="<base64 JPEG>"` | Picture in the map area | ✅ |
+| `AT+ODO="<km>"` | **Writes the odometer** (B uses it to "sync" upward) | 🟡 not in our tools |
+| `AT+END` | End of session (A sends it without CR LF) | 🟡 |
+| `AT+MAPON="1"/"0"`, `AT+MAPEND` | Map mode on/off (A only; B never sends these) | ❓ |
 
-Navigation text looks like `"<distance, 1 decimal> m <maneuver>"`, where maneuver is the
-Google Directions name, e.g. `120.0 m turn-left`. On arrival the app sends `You has arrived!`.
+### AT+NAV text rules ✅
+* ASCII only. B strips accents and replaces other characters with spaces.
+* Max 20 characters. Longer text is split at the space nearest the middle into two parts. B rotates
+  between items every 2–5 s.
+* **Pad every message to exactly 20 characters with spaces.** The MID only redraws characters that
+  changed, so leftovers from a longer previous text stay on screen (confirmed MID bug).
 
-### 3.1 Map picture format (`AT+MAPS`)
+### AT+MAPS picture ✅
+* **Base64 JPEG**, default **350 × 220** px. MID limits noted by B: width ≤ 350, height ≤ ~500.
+* Base64 length **≤ 7000 characters**. Bigger frames freeze the MID, and a cut-off frame is ignored. Lower
+  the JPEG quality until it fits.
+* Send the whole frame in one write on Classic. On LE, send it in pieces as described in §1.
+* B streams a live map every 1 s while navigating and every 3 s otherwise. It can also mirror the phone
+  screen (cropped JPEG) or show a fixed custom picture such as a logo or wallpaper.
+* A instead sent a 164 × 88, 4-colour, 2-bit-packed hex bitmap (`gesits/mapimage.py`, `--legacy`). That
+  is probably for old MID firmware. Use JPEG.
 
-The **MID can show custom graphics**, and this is how:
+## 4. Other devices B connects to (not the MID)
+* **JK-BMS** (battery management system) over BLE: service `FFE0`, notify `FFE1`, write `FFF2`.
+* **ESP32 CAN sniffer** over BLE Nordic UART (`6E400001/2/3-…`). Adds `CRZ` (cruise on/off) and `REM` (brake),
+  which "are not available from the MID".
 
-1. Scale the picture to **164 × 88 px** (nearest neighbour).
-2. Turn each pixel into a 2-bit code. The checks run in this order:
-   * R, G, B all ≥ 210 → `1` (white)
-   * R, G, B all ≤ 40 → `0` (black)
-   * B ≥ 210 → `2` (blue)
-   * R ≥ 210 → `3` (red)
-   * anything else → `1` (white)
-3. Go through the pixels row by row, left to right, and pack **4 pixels per byte with the
-   first pixel in the lowest 2 bits** (pixel *n* of the byte → bits 2n…2n+1).
-4. Write the 3608 bytes as **upper-case hex** → 7216 characters.
-
-`gesits/mapimage.py` does exactly this. Its tests check it against a line-by-line port of the
-app's own routine, which works on 64-bit words. We don't know yet which colour the MID
-actually shows for each code.
-
-The app also has a "simulate map" screen that sends `AT+MAPS="<base64 JPEG>"` (50×50 and
-41×40 JPEGs). That may be left-over test code, or a format that only some MID firmware
-accepts. **Use the hex format first.**
-
-## 4. Things still to confirm on the real bike
-
-* Which RFCOMM channel to use (try 1).
-* Units and scaling of `TBAT VBAT CBAT TMOT TINV TRT SPD`.
-* Meaning of `PARK`/`FWD` values and the `ERR` code table.
-* Whether the MID replies to set-commands (`TIME`, `NAV`, `MAPS`, …) with `OK` or similar.
-* Whether `AT+MAPON="1"` hides the speedometer. **Don't test map mode while riding.**
-* Whether the MID accepts other commands the app never uses. Try them with `gesits raw` while
-  parked.
-
-To capture real traffic: Android → Developer options → **Enable Bluetooth HCI snoop log**,
-use the app with the bike, then grab `btsnoop_hci.log` (via `adb bugreport`) and open it in
-Wireshark (filter `btspp` or `btrfcomm`).
+## 5. Still open
+* Units/meaning of `CBAT` and `TRT`. Official ERR table.
+* Does the MID acknowledge writes (e.g. `OK`)? Run `python -m gesits raw <uri> 'AT+TRIP="1.0"'` while parked.
+* Exact LE service UUID on your bike (check with nRF Connect).

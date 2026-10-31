@@ -36,5 +36,18 @@ class Encoding(unittest.TestCase):
         self.assertEqual(m.classify(250, 250, 100), m.RED)
 
 
+class Jpeg(unittest.TestCase):
+    def test_fits_limit_and_size(self):
+        import base64
+        import io
+        from PIL import Image
+        noisy = Image.effect_noise((1200, 900), 80).convert("RGB")
+        b64, q, img = m.jpeg_to_base64(noisy)
+        self.assertLessEqual(len(b64), 7000)
+        self.assertEqual(Image.open(io.BytesIO(base64.b64decode(b64))).size, (350, 220))
+        with self.assertRaises(ValueError):
+            m.jpeg_to_base64(noisy, width=400)
+
+
 if __name__ == "__main__":
     unittest.main()
