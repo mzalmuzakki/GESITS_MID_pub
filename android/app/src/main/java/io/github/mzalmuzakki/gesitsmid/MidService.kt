@@ -27,6 +27,8 @@ object Bike {
     @Volatile var lastFrame: Bitmap? = null
     @Volatile var lastFrameInfo = ""
     @Volatile var running = false
+    /** When the MID last sent anything (watchdog: a link that went silent is reconnected). */
+    @Volatile var lastRxAt = 0L
     /** One-off commands from the UI (text, picture...), sent by the service thread. */
     val outbox = LinkedBlockingQueue<String>()
     val log = ArrayDeque<String>()
@@ -174,6 +176,7 @@ class MidService : Service() {
             stopSelf()
             return START_NOT_STICKY
         }
+        if (intent == null) Bike.log("Service restarted by Android (the app had been stopped in the background)")
         goForeground(fromApp = intent != null)
         holdWakeLock(true)
         if (worker?.isAlive != true) {
@@ -186,14 +189,7 @@ class MidService : Service() {
     private fun goForeground(fromApp: Boolean) {
         val nm = getSystemService(NotificationManager::class.java)
         nm.createNotificationChannel(NotificationChannel(CHANNEL, L.t("Bike connection"), NotificationManager.IMPORTANCE_LOW))
-        val open = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
-        val n: Notification = Notification.Builder(this, CHANNEL)
-            .setContentTitle("Gesits MID")
-            .setContentText(L.t("Connected to the bike's dashboard"))
-            .setSmallIcon(android.R.drawable.stat_sys_data_bluetooth)
-            .setContentIntent(open)
-            .setOngoing(true)
-            .build()
+        val n = buildNotif(notifText())
         // Location type only when parking location is on, permitted, and started from the app (Android rule).
         var type = ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
         if (Build.VERSION.SDK_INT >= 29 && fromApp && Settings(this).rememberParking && Parking.hasPermission(this))
@@ -204,7 +200,39 @@ class MidService : Service() {
         } else startForeground(NOTIF_ID, n)
     }
 
-    private fun setStatus(s: String) { Bike.status = s; Bike.log(s) }
+    private fun setStatus(s: String) { Bike.status = s; Bike.log(s); refreshNotif() }
+
+    /** What the notification says: the real state, never a stale "connected". */
+    private fun notifText(): String {
+        if (!Bike.connected) return L.t(if (Bike.running) "Not connected - retrying" else "Stopped")
+        val t = Bike.telemetry
+        return L.t("Connected") + (t.f("SOC")?.let { "  ·  ${it.toInt()}%" } ?: "") +
+            (Bike.rangeKm()?.let { "  ·  ${it.toInt()} km" } ?: "")
+    }
+
+    private fun buildNotif(text: String): Notification {
+        val open = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
+        val stop = PendingIntent.getService(this, 1, Intent(this, MidService::class.java).setAction(ACTION_STOP), PendingIntent.FLAG_IMMUTABLE)
+        return Notification.Builder(this, CHANNEL)
+            .setContentTitle("Gesits MID")
+            .setContentText(text)
+            .setSmallIcon(android.R.drawable.stat_sys_data_bluetooth)
+            .setContentIntent(open)
+            .addAction(Notification.Action.Builder(null, L.t("Disconnect"), stop).build())
+            .setOnlyAlertOnce(true)
+            .setOngoing(true)
+            .build()
+    }
+
+    @Volatile private var notifShown = ""
+    /** Updates the notification only when its text changes (cheap; called on state changes and every few seconds). */
+    private fun refreshNotif() {
+        if (!Bike.running) return
+        val text = notifText()
+        if (text == notifShown) return
+        notifShown = text
+        try { getSystemService(NotificationManager::class.java).notify(NOTIF_ID, buildNotif(text)) } catch (_: Exception) {}
+    }
 
     private fun openLink(s: Settings): MidLink? {
         val adapter = getSystemService(BluetoothManager::class.java)?.adapter
@@ -212,6 +240,7 @@ class MidService : Service() {
         val addr = s.address ?: run { setStatus("Choose the bike first"); return null }
         val device = adapter.getRemoteDevice(addr)
         val onData: (ByteArray) -> Unit = { bytes ->
+            Bike.lastRxAt = System.currentTimeMillis()
             synchronized(parser) {
                 parser.feed(bytes, raw = { line ->
                     // Show everything except the routine poll replies in the log/console.
@@ -343,7 +372,7 @@ class MidService : Service() {
         Bike.loadTrip(s)
         Bike.loadBattery(s)
         L.init(s.language)
-        var lastWidget = 0L; var lastMapsCheck = 0L; var lastSpeedMsg = 0L; var navPart = 0
+        var lastWidget = 0L; var lastNotif = 0L; var lastMapsCheck = 0L; var lastSpeedMsg = 0L; var navPart = 0
         while (Bike.running) {
             try {
                 if (link?.isOpen != true) {
@@ -372,12 +401,22 @@ class MidService : Service() {
                     lastTime = 0L; lastMinute = -1   // set the MID clock right after connecting
                     lastFrameKey = ""; lastPolled.clear(); lastSave = System.currentTimeMillis()
                     Bike.telemetry.raw.clear()         // never pair old values with new ones (range learning)
+                    Bike.lastRxAt = 0L; connectedAt = System.currentTimeMillis()
                     send(Mid.VERSION_QUERY)            // MID firmware version (shown in the app)
                     send(Mid.ARROW_ON)                 // as GRID Mobile does on connect
                     Mid.CYCLE_KEYS.forEach { send(Mid.query(it)) }   // does this MID report a cycle count?
                     BikeWidget.update(this)
                 }
                 val now = System.currentTimeMillis()
+                // Watchdog: we ask for values every 1-3 s, so a link that stays silent is dead even if
+                // Android still calls it open (e.g. the phone suspended Bluetooth in the background).
+                val heard = Bike.lastRxAt
+                if (now - connectedAt > 20_000 && (if (heard > 0L) now - heard > 15_000 else now - connectedAt > 60_000)) {
+                    setStatus(if (heard > 0L) "No answer from the MID for 15 s - reconnecting" else "MID never answered - reconnecting")
+                    Bike.connected = false
+                    link?.close(); link = null
+                    continue
+                }
                 val tm = Bike.telemetry
                 val parked = tm.gear == "P" && (tm.f("SPD") ?: 0f) < 1f
                 val fast = Bike.uiFast
@@ -437,6 +476,7 @@ class MidService : Service() {
                     Bike.speedWarn.limit = s.speedLimit
                     Bike.speedWarn.update(tm.f("SPD"), now)
                     if (now - lastWidget >= 60_000) { BikeWidget.update(this); lastWidget = now }
+                    if (now - lastNotif >= 10_000) { refreshNotif(); lastNotif = now }
                     if (s.alarmsOn) {
                         Bike.alarms.socLow = s.socLow
                         Bike.alarms.evaluate(tm.f("SOC"), tm.f("TBAT"), tm.f("TMOT"), tm.f("SOH"), tm.errors)
@@ -525,6 +565,7 @@ class MidService : Service() {
     }
 
     private var lastGear: String? = null
+    @Volatile private var connectedAt = 0L
     private var lastSohDay: String? = null
 
     private fun navTurnWord(t: NavParser.Turn) = L.t(when (t) {

@@ -35,7 +35,8 @@ class ClassicLink(
     @Volatile private var socket: BluetoothSocket? = null
     @Volatile private var closedReported = false
 
-    override val isOpen get() = socket?.isConnected == true
+    // isConnected stays true after the other side vanishes; the receive thread ending is the real signal.
+    override val isOpen get() = socket?.isConnected == true && !closedReported
 
     override fun open() {
         val s = try {

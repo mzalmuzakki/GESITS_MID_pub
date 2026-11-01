@@ -94,6 +94,8 @@ class MainActivity : Activity() {
     }
 
     override fun onResume() { super.onResume(); ui.post(tick) }
+    override fun onStart() { super.onStart(); if (Bike.running) Bike.log("App opened (" + (if (Bike.connected) "connected" else "not connected") + ")") }
+    override fun onStop() { super.onStop(); if (Bike.running) Bike.log("App in background (" + (if (Bike.connected) "connected" else "not connected") + ")") }
     override fun onPause() { super.onPause(); ui.removeCallbacks(tick) }
 
     // ================================================================ shell + navigation

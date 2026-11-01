@@ -85,6 +85,7 @@ object L {
         "Off: tap the button, then turn on \"Gesits MID directions\"." to "Belum aktif: ketuk tombol, lalu aktifkan \"Gesits MID directions\".",
         "Ready: start navigation in Google Maps" to "Siap: mulai navigasi di Google Maps",
         "MID version" to "Versi MID",
+        "Not connected - retrying" to "Tidak terhubung - mencoba lagi", "Stopped" to "Berhenti",
         "SPEED WARNING" to "PERINGATAN KECEPATAN", "Off" to "Mati",
         "Warn on the MID above this speed" to "Peringatan di MID di atas kecepatan ini",
         // trips
