@@ -6,6 +6,8 @@ behaviour checked on real bikes. See docs/PROTOCOL.md for details and confidence
 """
 from __future__ import annotations
 
+import re
+
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Dict, Iterable, List, Optional, Tuple
@@ -168,14 +170,18 @@ class LineParser:
 
     def feed(self, data: bytes) -> List[Tuple[str, str]]:
         self._buf += data.decode("utf-8", errors="replace")
-        *lines, self._buf = self._buf.split(CRLF)
+        # Lines end in CR LF, but accept a lone CR or LF too.
+        *lines, self._buf = re.split(r"\r\n|\r|\n", self._buf)
         out = []
         for line in lines:
             line = line.strip()
             if not line:
                 continue
             key, sep, value = line.partition("=")
-            out.append((key.strip(), value.strip()) if sep else (line, ""))
+            key = key.strip()
+            if key.upper().startswith("AT+"):   # a G1 MID answers "AT+SOC=81" instead of "SOC=81"
+                key = key[3:]
+            out.append((key, value.strip()) if sep else (line, ""))
         return out
 
 

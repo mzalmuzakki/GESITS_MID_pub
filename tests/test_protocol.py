@@ -67,3 +67,12 @@ class Parsing(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PrefixedRepliesTest(unittest.TestCase):
+    def test_g1_replies_with_at_prefix(self):
+        from gesits.protocol import LineParser
+        p = LineParser()
+        self.assertEqual(p.feed(b"AT+VER=11-50-09-G1\r\nAT+RANGE=05"), [("VER", "11-50-09-G1")])
+        self.assertEqual(p.feed(b"0.0\r\nSOC=81\n"), [("RANGE", "050.0"), ("SOC", "81")])
+

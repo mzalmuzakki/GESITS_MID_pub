@@ -48,6 +48,13 @@ python -m gesits screen serial://COM5 --once    # our dashboard picture on the M
 ```
 Take a photo of the MID after each one.
 
+## 6. Watching and trying single values
+```
+python -m gesits watch serial://COM8 RANGE SOC NUMBAT        # read once a second (read-only)
+python -m gesits set   serial://COM8 RANGE 123.0 --also SOC  # write once, then see if the MID keeps it
+```
+`set` prints the old value and the command to put it back. It refuses to write the odometer.
+
 ## If something goes wrong
 | Problem | Try |
 |---|---|

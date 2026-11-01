@@ -142,6 +142,14 @@ now use 320 × 128.
 * **ESP32 CAN sniffer** over BLE Nordic UART (`6E400001/2/3-…`). Adds `CRZ` (cruise on/off) and `REM` (brake),
   which "are not available from the MID".
 
+### Found on a real G1 (MID firmware `11-50-09-G1`, laptop self-test over Classic COM port)
+* Replies carry an `AT+` prefix: `AT+VER=11-50-09-G1`.
+* `AT+RANGE?` → `AT+RANGE=050.0`: the MID's **own range figure** (separate from `AT+TRIP`).
+* `AT+NUMBAT?` → `AT+NUMBAT=1` (number of batteries?), `AT+FWD?` → `AT+FWD=1`, `AT+CBAT?` → `AT+CBAT=00000`.
+* `AT+TRIP="123"` shows 123 on the MID but it **reverts instantly** to its own 50: the MID refreshes
+  its range many times a second, so overriding it with `AT+TRIP` can only flicker.
+* No reply to `CYCLE`, `CAP`, `PWR`, `RPM` and the other probe names.
+
 ## 5. Still open
 * Units/meaning of `CBAT` and `TRT`. Official ERR table.
 * ~~Does the MID acknowledge writes?~~ Seen on a real G1 (app v0.13.00): **no**. It answers `AT+KEY?`

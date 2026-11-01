@@ -54,6 +54,45 @@ def cmd_raw(args) -> None:
                 print(f"<< {raw!r}")
 
 
+def _watch(c, keys, seconds: float, interval: float = 1.0) -> None:
+    end = time.monotonic() + seconds
+    while time.monotonic() < end:
+        t0 = time.monotonic()
+        vals = [f"{k}={c.request(k) or '(no reply)'}" for k in keys]
+        print(time.strftime("%H:%M:%S"), "  ".join(vals), flush=True)
+        time.sleep(max(0.0, interval - (time.monotonic() - t0)))
+
+
+def cmd_watch(args) -> None:
+    """Read some keys once a second (read-only)."""
+    with _connect(args) as c:
+        _watch(c, [k.upper() for k in args.keys], args.seconds)
+
+
+BLOCKED_SET_KEYS = {"ODO"}   # never: the odometer
+
+
+def cmd_set(args) -> None:
+    """Write AT+KEY="value" once, then read the key back for a while to see whether the MID keeps it."""
+    key = args.key.upper()
+    if key in BLOCKED_SET_KEYS:
+        raise SystemExit(f"Refusing to write {key} (odometer).")
+    with _connect(args) as c:
+        before = c.request(key)
+        print(f"{key} before: {before or '(no reply)'}")
+        if before is not None:
+            print(f"To undo: python -m gesits set {args.uri} {key} {before}")
+        cmd = f'AT+{key}="{args.value}"\r\n'.encode("ascii")
+        c.send(cmd)
+        print(f">> {cmd!r}")
+        end = time.monotonic() + 1.0
+        while time.monotonic() < end:                      # anything the MID says right after the write
+            raw = c.t.read(0.2)
+            if raw:
+                print(f"<< {raw!r}")
+        _watch(c, [key] + [k.upper() for k in args.also], args.seconds)
+
+
 def cmd_time(args) -> None:
     with _connect(args) as c:
         c.sync_time()
@@ -253,6 +292,16 @@ def main(argv=None) -> None:
     sp.add_argument("text")
     sp.add_argument("--rotate", type=float, default=3.0, help="seconds per part")
     sp.add_argument("--repeat", type=int, default=1)
+
+    sp = add("watch", cmd_watch, "read some values once a second, e.g. watch serial://COM8 RANGE SOC (read-only)")
+    sp.add_argument("keys", nargs="+")
+    sp.add_argument("--seconds", type=float, default=30)
+
+    sp = add("set", cmd_set, 'write AT+KEY="value" once, then read KEY back to see if the MID keeps it')
+    sp.add_argument("key")
+    sp.add_argument("value")
+    sp.add_argument("--also", nargs="*", default=[], help="other keys to read alongside")
+    sp.add_argument("--seconds", type=float, default=20)
 
     sp = add("range", cmd_range, "set the range figure on the MID (AT+TRIP)")
     sp.add_argument("km", type=float)
