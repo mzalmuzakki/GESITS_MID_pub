@@ -29,9 +29,11 @@ One screen with four tabs at the bottom:
 * Sends a picture to the MID map area every few seconds: **your own live dashboard** (same design as
   `docs/img/custom_screen.png`) or **a picture you choose**.
 * **Adaptive range on the MID:** learns your real km per 1% battery from the odometer while you
-  ride (most recent ~60% of battery used) and sends battery % × that to the MID's range display
-  (`AT+TRIP`) every 0.5 s and right after each picture (the MID keeps putting its own figure back). It starts from a value you set (default 1.0 km per 1%), which fades out after
-  20% of battery has been learned. Charging, gaps over 30 min without the app, and impossible
+  ride (most recent ~60% of battery used). It starts from a value you set (default 0.5 km per 1%,
+  about 50 km for a full G1 battery), which fades out after 20% of battery has been learned. **Only
+  once learned** does it send battery % × that to the MID's range display (`AT+TRIP`), every 0.25 s
+  and right after each picture: the MID keeps recalculating its own figure, so it may still briefly
+  show that one. Until then the MID keeps its own range. Charging, gaps over 30 min without the app, and impossible
   readings are ignored. **Forget learned range** starts over (e.g. after a battery change).
 * **Clock sync:** sets the MID clock from your phone on connect, at every minute change, and every 30 s.
 * Optionally shows your own text line (rotating, 20 characters per step).

@@ -94,7 +94,7 @@ class Settings(ctx: Context) {
     /** Show today's date on the MID text line when no own text is set (like GRID Mobile). */
     var navDate: Boolean get() = p.getBoolean("navDate", true); set(v) = p.edit().putBoolean("navDate", v).apply()
     var navText: String get() = p.getString("nav", "")!!; set(v) = p.edit().putString("nav", v).apply()
-    var kmPerPercent: Float get() = p.getFloat("kmpp", 1.0f); set(v) = p.edit().putFloat("kmpp", v).apply()
+    var kmPerPercent: Float get() = p.getFloat("kmpp", 0.5f); set(v) = p.edit().putFloat("kmpp", v).apply()
     var tripState: String? get() = p.getString("tripState", null); set(v) = p.edit().putString("tripState", v).apply()
     /** "auto" (BIG while riding, MAIN/TRIP when stopped), "main", "trip", "big", "rotate" */
     var dashStyle: String get() = p.getString("dashStyle", "auto")!!; set(v) = p.edit().putString("dashStyle", v).apply()
@@ -138,7 +138,7 @@ class MidService : Service() {
         const val ACTION_STOP = "stop"
         private const val CHANNEL = "mid"
         private const val NOTIF_ID = 1
-        private const val TRIP_EVERY_MS = 500L
+        private const val TRIP_EVERY_MS = 250L
 
         fun start(ctx: Context) {
             val i = Intent(ctx, MidService::class.java).setAction(ACTION_START)
@@ -497,8 +497,10 @@ class MidService : Service() {
                     lastLearn = now
                 }
                 // Range: the MID keeps putting its own figure back (on its own timer and whenever it redraws
-                // after a picture), so ours is re-sent every 0.5 s and again once the picture has been drawn.
-                if (s.sendRange && (now - lastTrip >= TRIP_EVERY_MS || (tripAfterFrame > 0L && now >= tripAfterFrame))) {
+                // after a picture), so ours is re-sent every 0.25 s and again once the picture has been drawn.
+                // Only once learned from riding: a mere guess fighting the MID's own figure just flickers.
+                val rangeReady = s.sendRange && synchronized(Bike.range) { Bike.range.fullyLearned }
+                if (rangeReady && (now - lastTrip >= TRIP_EVERY_MS || (tripAfterFrame > 0L && now >= tripAfterFrame))) {
                     Bike.rangeKm()?.let { send(Mid.trip(it)) }
                     lastTrip = now; tripAfterFrame = 0L
                 }
@@ -535,7 +537,7 @@ class MidService : Service() {
                     val b64 = picturePayload(s, now)
                     if (b64 != null) {
                         send(Mid.maps(b64))
-                        if (s.sendRange) { Bike.rangeKm()?.let { send(Mid.trip(it)) }; tripAfterFrame = System.currentTimeMillis() + 400 }
+                        if (rangeReady) { Bike.rangeKm()?.let { send(Mid.trip(it)) }; tripAfterFrame = System.currentTimeMillis() + 400 }
                         Bike.lastFrameInfo = (if (L.indo) "Gambar terkirim: " else "Picture sent: ") + "${b64.length} " + (if (L.indo) "karakter dalam " else "chars in ") + "${System.currentTimeMillis() - t0} ms"
                         lastFrameSent = now
                     }
@@ -543,7 +545,7 @@ class MidService : Service() {
                 }
 
                 // Sleep until the next thing is due; a command from the UI wakes us early.
-                val nextDue = minOf(nextPoll, lastLearn + 1000, if (s.sendRange) minOf(lastTrip + TRIP_EVERY_MS, if (tripAfterFrame > 0L) tripAfterFrame else Long.MAX_VALUE) else Long.MAX_VALUE,
+                val nextDue = minOf(nextPoll, lastLearn + 1000, if (rangeReady) minOf(lastTrip + TRIP_EVERY_MS, if (tripAfterFrame > 0L) tripAfterFrame else Long.MAX_VALUE) else Long.MAX_VALUE,
                     lastFrame + s.frameSeconds * 1000L)
                 val wait = (nextDue - System.currentTimeMillis()).coerceIn(30L, 1000L)
                 Bike.outbox.poll(wait, java.util.concurrent.TimeUnit.MILLISECONDS)?.let { cmd ->

@@ -18,7 +18,7 @@ from typing import Optional
 
 
 class RangeEstimator:
-    def __init__(self, prior_km_per_percent: float = 1.0, window_percent: float = 60.0,
+    def __init__(self, prior_km_per_percent: float = 0.5, window_percent: float = 60.0,
                  prior_weight_percent: float = 8.0, fade_percent: float = 20.0,
                  max_km_per_percent: float = 5.0, max_gap_s: float = 30 * 60) -> None:
         self.prior = prior_km_per_percent

@@ -6,8 +6,13 @@ Versions are **v\<major\>.\<xx\>.\<yy\>** (see `android/version.properties`):
 * **yy**: fixes and polish only
 
 ## v0.12.03
-Range on the MID: re-sent every 0.5 s (was 1 s) and once more 0.4 s after each picture, because the
-MID puts its own range back when it redraws. Costs a few bytes per second over Bluetooth.
+Range on the MID:
+* The starting guess is now 0.5 km per 1% (about 50 km on a full G1 battery). It was 1.0, which
+  showed 100 km against the MID's 50.
+* The app's range is sent to the MID only once it has learned from about 20% of battery ridden;
+  until then the MID keeps its own figure, instead of the two switching back and forth.
+* Once learned it is re-sent every 0.25 s and once more 0.4 s after each picture, because the MID keeps
+  recalculating its own range. The MID tab explains which range the MID is showing.
 
 ## v0.12.02
 Background connection fixes:

@@ -133,8 +133,9 @@ now use 320 × 128.
   range circle and battery gauge are drawn over the picture. The app's dashboard keeps a 56 px bottom
   margin by default; the calibration grid (app → "Calibration grid") measures this exactly.
 * `AT+TRIP` changes the MID's "Range" figure, but the MID puts its own value back (when updates stop,
-  and apparently when it redraws after a picture), so the app re-sends it every 0.5 s and 0.4 s after
-  each picture. GESITS Dashboard sent it every 0.5 s in older versions, every 3 s now. Still being checked on a real bike.
+  and apparently when it redraws after a picture), so the app re-sends it every 0.25 s and 0.4 s after
+  each picture. Seen on a G1: the display switches between the two values (MID 50, app 100), so the
+  MID keeps recalculating; the app now sends only a learned value. GESITS Dashboard sent it every 0.5 s in older versions, every 3 s now. Still being checked on a real bike.
 
 ## 4. Other devices B connects to (not the MID)
 * **JK-BMS** (battery management system) over BLE: service `FFE0`, notify `FFE1`, write `FFF2`.

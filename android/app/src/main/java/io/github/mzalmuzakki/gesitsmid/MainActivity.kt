@@ -468,8 +468,13 @@ class MainActivity : Activity() {
             Bike.navFresh() -> Bike.nav!!.let { "→ ${it.distance ?: ""} ${it.street}" }
             else -> "✓ " + L.t("Ready: start navigation in Google Maps")
         }
-        rangeInfo.text = synchronized(Bike.range) { Bike.range.describe() } +
-            (Bike.rangeKm()?.let { String.format(Locale.US, if (L.indo) " → %.0f km sekarang" else " → %.0f km now", it) } ?: "")
+        val (desc, learned, pct) = synchronized(Bike.range) { Triple(Bike.range.describe(), Bike.range.fullyLearned, Bike.range.learnedPercent) }
+        rangeInfo.text = desc + (Bike.rangeKm()?.let { String.format(Locale.US, if (L.indo) " → %.0f km sekarang" else " → %.0f km now", it) } ?: "") + "\n" +
+            when {
+                !settings.sendRange -> L.t("The MID shows its own range.")
+                learned -> L.t("The MID shows this range. The MID also keeps recalculating its own, so it may briefly show that one.")
+                else -> String.format(Locale.US, L.t("Still learning (%.0f of 20%% battery ridden): until then the MID keeps its own range."), pct)
+            }
     }
 
     // ================================================================ TRIPS

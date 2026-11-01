@@ -17,7 +17,7 @@ import java.util.Locale
  * Same algorithm as gesits/rangeest.py. Pure Kotlin so it can be unit-tested off-device.
  */
 class RangeEstimator(
-    var priorKmPerPercent: Float = 1.0f,
+    var priorKmPerPercent: Float = 0.5f,   // Gesits G1: about 50 km per full battery
     private val windowPercent: Float = 60f,
     private val priorWeightPercent: Float = 8f,
     private val fadePercent: Float = 20f,

@@ -52,6 +52,11 @@ object L {
         "Save text" to "Simpan teks", "Text cleared" to "Teks dihapus",
         "Show today's date when empty" to "Tampilkan tanggal hari ini jika kosong",
         "Adaptive range on the MID" to "Jarak tempuh adaptif di MID",
+        "The MID shows its own range." to "MID menampilkan jarak tempuhnya sendiri.",
+        "The MID shows this range. The MID also keeps recalculating its own, so it may briefly show that one." to
+            "MID menampilkan jarak tempuh ini. MID juga terus menghitung miliknya sendiri, jadi sesekali angka itu muncul sebentar.",
+        "Still learning (%.0f of 20%% battery ridden): until then the MID keeps its own range." to
+            "Masih belajar (%.0f dari 20%% baterai terpakai): sampai saat itu MID memakai jarak tempuhnya sendiri.",
         "Learned from your riding: km per 1% battery" to "Dipelajari dari cara berkendara Anda: km per 1% baterai",
         "Starting value" to "Nilai awal", "Forget learned" to "Lupakan hasil belajar",
         "Forget learned range?" to "Lupakan jarak tempuh yang dipelajari?",
