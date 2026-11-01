@@ -30,7 +30,7 @@ One screen with four tabs at the bottom:
   `docs/img/custom_screen.png`) or **a picture you choose**.
 * **Adaptive range on the MID:** learns your real km per 1% battery from the odometer while you
   ride (most recent ~60% of battery used) and sends battery % × that to the MID's range display
-  (`AT+TRIP`) every second (the MID goes back to its own figure if updates stop). It starts from a value you set (default 1.0 km per 1%), which fades out after
+  (`AT+TRIP`) every 0.5 s and right after each picture (the MID keeps putting its own figure back). It starts from a value you set (default 1.0 km per 1%), which fades out after
   20% of battery has been learned. Charging, gaps over 30 min without the app, and impossible
   readings are ignored. **Forget learned range** starts over (e.g. after a battery change).
 * **Clock sync:** sets the MID clock from your phone on connect, at every minute change, and every 30 s.

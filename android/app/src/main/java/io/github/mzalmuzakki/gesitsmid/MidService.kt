@@ -138,6 +138,7 @@ class MidService : Service() {
         const val ACTION_STOP = "stop"
         private const val CHANNEL = "mid"
         private const val NOTIF_ID = 1
+        private const val TRIP_EVERY_MS = 500L
 
         fun start(ctx: Context) {
             val i = Intent(ctx, MidService::class.java).setAction(ACTION_START)
@@ -372,6 +373,7 @@ class MidService : Service() {
         Bike.loadTrip(s)
         Bike.loadBattery(s)
         L.init(s.language)
+        var tripAfterFrame = 0L
         var lastWidget = 0L; var lastNotif = 0L; var lastMapsCheck = 0L; var lastSpeedMsg = 0L; var navPart = 0
         while (Bike.running) {
             try {
@@ -494,10 +496,11 @@ class MidService : Service() {
                     }
                     lastLearn = now
                 }
-                // Every second: the MID falls back to its own range figure if we go quiet.
-                if (s.sendRange && now - lastTrip >= 1000) {
+                // Range: the MID keeps putting its own figure back (on its own timer and whenever it redraws
+                // after a picture), so ours is re-sent every 0.5 s and again once the picture has been drawn.
+                if (s.sendRange && (now - lastTrip >= TRIP_EVERY_MS || (tripAfterFrame > 0L && now >= tripAfterFrame))) {
                     Bike.rangeKm()?.let { send(Mid.trip(it)) }
-                    lastTrip = now
+                    lastTrip = now; tripAfterFrame = 0L
                 }
                 val nav = if (s.navOn && Bike.navFresh(now)) Bike.nav else null
                 if (Bike.speedWarn.active) {
@@ -532,7 +535,7 @@ class MidService : Service() {
                     val b64 = picturePayload(s, now)
                     if (b64 != null) {
                         send(Mid.maps(b64))
-                        if (s.sendRange) Bike.rangeKm()?.let { send(Mid.trip(it)) }   // right after a (slow) frame
+                        if (s.sendRange) { Bike.rangeKm()?.let { send(Mid.trip(it)) }; tripAfterFrame = System.currentTimeMillis() + 400 }
                         Bike.lastFrameInfo = (if (L.indo) "Gambar terkirim: " else "Picture sent: ") + "${b64.length} " + (if (L.indo) "karakter dalam " else "chars in ") + "${System.currentTimeMillis() - t0} ms"
                         lastFrameSent = now
                     }
@@ -540,7 +543,7 @@ class MidService : Service() {
                 }
 
                 // Sleep until the next thing is due; a command from the UI wakes us early.
-                val nextDue = minOf(nextPoll, lastLearn + 1000, if (s.sendRange) lastTrip + 1000 else Long.MAX_VALUE,
+                val nextDue = minOf(nextPoll, lastLearn + 1000, if (s.sendRange) minOf(lastTrip + TRIP_EVERY_MS, if (tripAfterFrame > 0L) tripAfterFrame else Long.MAX_VALUE) else Long.MAX_VALUE,
                     lastFrame + s.frameSeconds * 1000L)
                 val wait = (nextDue - System.currentTimeMillis()).coerceIn(30L, 1000L)
                 Bike.outbox.poll(wait, java.util.concurrent.TimeUnit.MILLISECONDS)?.let { cmd ->

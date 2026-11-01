@@ -5,6 +5,10 @@ Versions are **v\<major\>.\<xx\>.\<yy\>** (see `android/version.properties`):
 * **xx**: feature milestone (new or changed things you notice); resets yy
 * **yy**: fixes and polish only
 
+## v0.12.03
+Range on the MID: re-sent every 0.5 s (was 1 s) and once more 0.4 s after each picture, because the
+MID puts its own range back when it redraws. Costs a few bytes per second over Bluetooth.
+
 ## v0.12.02
 Background connection fixes:
 * The notification shows the real state (Connected · battery · range, or "Not connected - retrying")
