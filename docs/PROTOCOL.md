@@ -144,5 +144,6 @@ now use 320 × 128.
 
 ## 5. Still open
 * Units/meaning of `CBAT` and `TRT`. Official ERR table.
-* Does the MID acknowledge writes (e.g. `OK`)? Run `python -m gesits raw <uri> 'AT+TRIP="1.0"'` while parked.
+* ~~Does the MID acknowledge writes?~~ Seen on a real G1 (app v0.13.00): **no**. It answers `AT+KEY?`
+  questions, but sends nothing back for `AT+MAPS`, `AT+TIME`, `AT+NAV` or `AT+TRIP`.
 * Exact LE service UUID on your bike (check with nRF Connect).
