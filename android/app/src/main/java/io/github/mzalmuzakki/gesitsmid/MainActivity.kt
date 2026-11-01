@@ -385,13 +385,12 @@ class MainActivity : Activity() {
         Ui.switchRow(this, tc, "Show today's date when empty", "e.g. 31 Oktober 2026", settings.navDate) { settings.navDate = it }
 
         val rc = Ui.card(this, col, "RANGE")
-        Ui.switchRow(this, rc, "Adaptive range on the MID", "Learned from your riding: km per 1% battery", settings.sendRange) { settings.sendRange = it }
+        Ui.switchRow(this, rc, "Adaptive range on the MID", "Learns your battery size and how much you use, by itself", settings.sendRange) { settings.sendRange = it }
         rangeInfo = Ui.text(this, rc, "", 13f, Ui.MUTED)
         val rr = Ui.row(this, rc)
-        Ui.secondary(this, rr, "Full-battery range", 1f) { askStartingValue() }
         Ui.secondary(this, rr, "Forget learned", 1f, Ui.RED) {
             AlertDialog.Builder(this).setTitle(L.t("Forget learned range?")).setMessage(L.t("Learning starts again. Useful after a battery change."))
-                .setPositiveButton(L.t("Forget")) { _, _ -> synchronized(Bike.range) { Bike.range.reset(); settings.rangeState = Bike.range.save() } }
+                .setPositiveButton(L.t("Forget")) { _, _ -> synchronized(Bike.range) { Bike.range.reset(); Bike.energy.reset(); settings.rangeState = Bike.range.save(); settings.energyState = Bike.energy.save() } }
                 .setNegativeButton(L.t("Cancel"), null).show()
         }
         Ui.secondary(this, rc, "Test: does the MID keep our number? (40 s)") {
@@ -450,19 +449,6 @@ class MainActivity : Activity() {
         else String.format(Locale.US, L.t("TEST part 2 (app reads values, sends nothing): did 123 change back now? %d s left"), left)
     }
 
-    private fun askStartingValue() {
-        val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(20), dp(8), dp(20), 0) }
-        Ui.text(this, box, L.t("How far you get on a full battery. Original G1 battery: about 50 km. With a bigger battery, enter its range; the app sends it to the MID right away and keeps refining it from your rides."), 13f, Ui.MUTED)
-        val e = Ui.number(this, box, "km on a full battery", Math.round(settings.kmPerPercent * 100f).toFloat())
-        AlertDialog.Builder(this).setTitle(L.t("Full-battery range")).setView(box)
-            .setPositiveButton(L.t("Save")) { _, _ ->
-                e.text.toString().replace(',', '.').toFloatOrNull()?.takeIf { it in 5f..500f }?.let {
-                    val kmpp = it / 100f
-                    settings.kmPerPercent = kmpp; synchronized(Bike.range) { Bike.range.priorKmPerPercent = kmpp }
-                } ?: toast(L.t("Enter a number between 5 and 500"))
-            }.setNegativeButton(L.t("Cancel"), null).show()
-    }
-
     private fun refreshMid() {
         if (!::preview.isInitialized) return
         Bike.lastFrame?.let { if (preview.tag !== it) { preview.setImageBitmap(it); preview.tag = it } }
@@ -484,13 +470,12 @@ class MainActivity : Activity() {
             Bike.navFresh() -> Bike.nav!!.let { "→ ${it.distance ?: ""} ${it.street}" }
             else -> "✓ " + L.t("Ready: start navigation in Google Maps")
         }
-        val (desc, learned, pct) = synchronized(Bike.range) { Triple(Bike.range.describe(), Bike.range.fullyLearned, Bike.range.learnedPercent) }
+        val desc = synchronized(Bike.range) { Bike.energy.describe(L.indo) }
         rangeInfo.text = desc + (Bike.rangeKm()?.let { String.format(Locale.US, if (L.indo) " → %.0f km sekarang" else " → %.0f km now", it) } ?: "") + "\n" +
             when {
                 Bike.rangeTestElapsed() != null -> rangeTestText(Bike.rangeTestElapsed()!!)
                 !settings.sendRange -> L.t("The MID shows its own range.")
-                learned || settings.kmPerPercentSet -> L.t("The MID shows this range. The MID also keeps recalculating its own, so it may briefly show that one.")
-                else -> String.format(Locale.US, L.t("Still learning (%.0f of 20%% battery ridden): until then the MID keeps its own range."), pct)
+                else -> L.t("The MID shows this range. It also keeps recalculating its own (for the original battery), so it may briefly show that one.")
             }
     }
 
@@ -581,7 +566,7 @@ class MainActivity : Activity() {
                     MidService.stop(this); RideStore.clear(this)
                     getSharedPreferences("settings", MODE_PRIVATE).edit().clear().apply()
                     deleteFile("picture.b64")
-                    synchronized(Bike.range) { Bike.range.reset() }; synchronized(Bike.trip) { Bike.trip.clear() }
+                    synchronized(Bike.range) { Bike.range.reset(); Bike.energy.reset() }; synchronized(Bike.trip) { Bike.trip.clear() }
                     synchronized(Bike.battery) { Bike.battery.clear() }
                     recreate()
                 }.setNegativeButton(L.t("Cancel"), null).show()

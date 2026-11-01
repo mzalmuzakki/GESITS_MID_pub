@@ -5,6 +5,16 @@ Versions are **v\<major\>.\<xx\>.\<yy\>** (see `android/version.properties`):
 * **xx**: feature milestone (new or changed things you notice); resets yy
 * **yy**: fixes and polish only
 
+## v0.13.00
+**Fully adaptive range, from energy:** range = battery % × battery capacity ÷ your consumption.
+* Consumption (Wh/km) is measured from voltage × current over your last 15 km, so it follows your
+  riding style, mode and load within the first kilometre.
+* Battery capacity is learned from energy against battery %, while riding and while charging, so a
+  bigger (custom) battery is recognised by itself, typically after one charge or ~15% of riding.
+* Nothing to enter: the "Full-battery range" setting from v0.12.05 is gone. Starts at the original
+  battery's ~50 km and adapts from there. The range is sent to the MID from the start.
+* MID tab → Range shows what has been learned: battery kWh, Wh/km and the range at 100%.
+
 ## v0.12.05
 For bikes with a bigger (custom) battery, where the MID's own range assumes the original one:
 * **Full-battery range** (MID tab → Range): enter how far you get on a full battery. The app sends

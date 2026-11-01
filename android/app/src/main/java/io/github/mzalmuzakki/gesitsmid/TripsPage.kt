@@ -50,7 +50,7 @@ class TripsPage(private val a: Activity, private val settings: Settings) {
         Ui.tile(a, r, "EFFICIENCY").text = st.avgWhPerKm?.let { String.format(Locale.US, "%.0f Wh/km", it) } ?: "--"
         r = Ui.row(a, tc)
         Ui.tile(a, r, "REGEN").text = String.format(Locale.US, "%.0f Wh", st.totalRegenWh)
-        Ui.tile(a, r, "KM PER 1%").text = synchronized(Bike.range) { String.format(Locale.US, "%.2f", Bike.range.kmPerPercent) }
+        Ui.tile(a, r, "KM PER 1%").text = synchronized(Bike.range) { String.format(Locale.US, "%.2f", Bike.energy.rangeKm(1f)) }
 
         // Battery health: SOH from the MID, capacity from rides, cycles counted by the app
         val bh = Ui.card(a, col, "BATTERY HEALTH")

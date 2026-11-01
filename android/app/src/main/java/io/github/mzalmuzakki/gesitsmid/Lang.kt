@@ -58,6 +58,9 @@ object L {
         "Still learning (%.0f of 20%% battery ridden): until then the MID keeps its own range." to
             "Masih belajar (%.0f dari 20%% baterai terpakai): sampai saat itu MID memakai jarak tempuhnya sendiri.",
         "Learned from your riding: km per 1% battery" to "Dipelajari dari cara berkendara Anda: km per 1% baterai",
+        "Learns your battery size and how much you use, by itself" to "Mempelajari ukuran baterai dan pemakaian Anda secara otomatis",
+        "The MID shows this range. It also keeps recalculating its own (for the original battery), so it may briefly show that one." to
+            "MID menampilkan jarak tempuh ini. MID juga terus menghitung miliknya sendiri (untuk baterai asli), jadi angka itu sesekali muncul sebentar.",
         "Full-battery range" to "Jarak baterai penuh", "km on a full battery" to "km dengan baterai penuh",
         "How far you get on a full battery. Original G1 battery: about 50 km. With a bigger battery, enter its range; the app sends it to the MID right away and keeps refining it from your rides." to
             "Seberapa jauh dengan baterai penuh. Baterai asli G1: sekitar 50 km. Dengan baterai lebih besar, isi jaraknya; aplikasi langsung mengirimnya ke MID dan terus menyesuaikannya dari perjalanan Anda.",

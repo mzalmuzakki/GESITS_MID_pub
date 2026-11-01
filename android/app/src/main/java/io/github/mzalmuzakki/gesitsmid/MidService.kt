@@ -44,11 +44,17 @@ object Bike {
     val range = RangeEstimator()
     @Volatile var rangeLoaded = false
 
+    /** Energy-based adaptive range (battery capacity x your consumption); guarded by synchronized(range) too. */
+    val energy = EnergyRange()
+
     fun loadRange(s: Settings) = synchronized(range) {
-        if (!rangeLoaded) { range.load(s.rangeState); rangeLoaded = true }
+        if (!rangeLoaded) { range.load(s.rangeState); energy.load(s.energyState); rangeLoaded = true }
         range.priorKmPerPercent = s.kmPerPercent
     }
-    fun rangeKm(): Float? = Bike.telemetry.f("SOC")?.let { soc -> synchronized(range) { range.rangeKm(soc) } }
+    /** Range now: from energy (normal case); the older km-per-% learner only if no power data has ever been seen. */
+    fun rangeKm(): Float? = Bike.telemetry.f("SOC")?.let { soc ->
+        synchronized(range) { if (energy.hasData || range.learnedPercent <= 0f) energy.rangeKm(soc) else range.rangeKm(soc) }
+    }
 
     /** Last ~10 minutes of per-second samples for the Diagnosis charts; guard with synchronized(samples). */
     val samples = ArrayDeque<Sample>()
@@ -103,8 +109,6 @@ class Settings(ctx: Context) {
     var navDate: Boolean get() = p.getBoolean("navDate", true); set(v) = p.edit().putBoolean("navDate", v).apply()
     var navText: String get() = p.getString("nav", "")!!; set(v) = p.edit().putString("nav", v).apply()
     var kmPerPercent: Float get() = p.getFloat("kmpp", 0.5f); set(v) = p.edit().putFloat("kmpp", v).apply()
-    /** True once you entered your battery's full range yourself (e.g. a bigger custom battery): sent to the MID right away. */
-    val kmPerPercentSet: Boolean get() = p.contains("kmpp")
     var tripState: String? get() = p.getString("tripState", null); set(v) = p.edit().putString("tripState", v).apply()
     /** "auto" (BIG while riding, MAIN/TRIP when stopped), "main", "trip", "big", "rotate" */
     var dashStyle: String get() = p.getString("dashStyle", "auto")!!; set(v) = p.edit().putString("dashStyle", v).apply()
@@ -135,6 +139,7 @@ class Settings(ctx: Context) {
     /** Stop the service after the bike has been off this many minutes (0 = never). */
     var autoStopMin: Int get() = p.getInt("autoStop", 60); set(v) = p.edit().putInt("autoStop", v).apply()
     var rangeState: String? get() = p.getString("rangeState", null); set(v) = p.edit().putString("rangeState", v).apply()
+    var energyState: String? get() = p.getString("energyState", null); set(v) = p.edit().putString("energyState", v).apply()
     var margins: ScreenRenderer.Margins
         get() = ScreenRenderer.Margins(p.getInt("mL", 0), p.getInt("mT", 0), p.getInt("mR", 0), p.getInt("mB", 0))
         set(v) = p.edit().putInt("mL", v.left).putInt("mT", v.top).putInt("mR", v.right).putInt("mB", v.bottom).apply()
@@ -367,7 +372,7 @@ class MidService : Service() {
     private var lastFrameSent = 0L
 
     private fun saveState(s: Settings) {
-        s.rangeState = synchronized(Bike.range) { Bike.range.save() }
+        synchronized(Bike.range) { s.rangeState = Bike.range.save(); s.energyState = Bike.energy.save() }
         s.tripState = synchronized(Bike.trip) { Bike.trip.save() }
         s.batteryState = synchronized(Bike.battery) { Bike.battery.save() }
         BikeWidget.update(this)
@@ -383,6 +388,12 @@ class MidService : Service() {
         Bike.loadTrip(s)
         Bike.loadBattery(s)
         L.init(s.language)
+        // Battery size from rides recorded earlier, if the energy model has nothing yet.
+        RideStore.all(this).filter { it.energyWh > 0f && it.socStart - it.socEnd >= 2f }.let { r ->
+            if (r.isNotEmpty()) synchronized(Bike.range) {
+                Bike.energy.seedCapacity(r.sumOf { it.energyWh.toDouble() }.toFloat(), r.sumOf { (it.socStart - it.socEnd).toDouble() }.toFloat())
+            }
+        }
         var tripAfterFrame = 0L; var testSent = false
         var lastWidget = 0L; var lastNotif = 0L; var lastMapsCheck = 0L; var lastSpeedMsg = 0L; var navPart = 0
         while (Bike.running) {
@@ -500,6 +511,8 @@ class MidService : Service() {
                             .forEach { Alerts.notify(this, it) }
                     }
                     synchronized(Bike.trip) { Bike.trip.update(tm.f("ODO"), tm.f("SOC"), tm.f("VBAT"), tm.f("IBAT"), now) }
+                    val chargingNow = synchronized(Bike.battery) { Bike.battery.charging }
+                    synchronized(Bike.range) { Bike.energy.update(tm.f("SOC"), tm.f("VBAT"), tm.f("IBAT"), tm.f("ODO"), chargingNow, now) }
                     val odo = tm.f("ODO"); val soc = tm.f("SOC")
                     if (odo != null && soc != null) {
                         val learned = synchronized(Bike.range) {
@@ -513,8 +526,7 @@ class MidService : Service() {
                 }
                 // Range: the MID keeps putting its own figure back (on its own timer and whenever it redraws
                 // after a picture), so ours is re-sent every 0.25 s and again once the picture has been drawn.
-                // Only once learned from riding: a mere guess fighting the MID's own figure just flickers.
-                val rangeReady = !testing && s.sendRange && (s.kmPerPercentSet || synchronized(Bike.range) { Bike.range.fullyLearned })
+                val rangeReady = !testing && s.sendRange
                 if (rangeReady && (now - lastTrip >= TRIP_EVERY_MS || (tripAfterFrame > 0L && now >= tripAfterFrame))) {
                     Bike.rangeKm()?.let { send(Mid.trip(it)) }
                     lastTrip = now; tripAfterFrame = 0L

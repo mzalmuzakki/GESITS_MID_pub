@@ -28,14 +28,15 @@ One screen with four tabs at the bottom:
   temperatures and errors.
 * Sends a picture to the MID map area every few seconds: **your own live dashboard** (same design as
   `docs/img/custom_screen.png`) or **a picture you choose**.
-* **Adaptive range on the MID:** learns your real km per 1% battery from the odometer while you
-  ride (most recent ~60% of battery used). It starts from your **full-battery range** (default 50 km,
-  the original G1 battery; enter more for a bigger battery), which fades out after 20% of battery has
-  been learned. Once learned, or as soon as you enter your full-battery range, it sends battery % × that to the MID's range display (`AT+TRIP`), every 0.25 s
-  and right after each picture: the MID keeps recalculating its own figure, so it may still briefly
-  show that one. Until then the MID keeps its own range. **Range test** (MID tab) helps find out what
-  makes the MID go back to its own figure. Charging, gaps over 30 min without the app, and impossible
-  readings are ignored. **Forget learned range** starts over (e.g. after a battery change).
+* **Adaptive range on the MID:** range = battery % × battery capacity ÷ your consumption, all learned
+  by the app. Consumption (Wh/km) comes from voltage × current over your last 15 km, so it adapts
+  within the first kilometre. Battery capacity is learned from energy against battery %, while riding
+  and while charging, so a bigger custom battery is recognised by itself (usually after one charge).
+  It starts at the original G1 battery (~1.5 kWh, ~30 Wh/km, ~50 km) and adapts from there. It sends
+  that to the MID's range display (`AT+TRIP`) every 0.25 s and right after each picture: the MID keeps
+  recalculating its own figure (for the original battery), so it may still briefly show that one.
+  **Range test** (MID tab) helps find out what makes the MID go back to its own figure. Gaps in the
+  data and impossible readings are ignored. **Forget learned range** starts over (e.g. after a battery change).
 * **Clock sync:** sets the MID clock from your phone on connect, at every minute change, and every 30 s.
 * Optionally shows your own text line (rotating, 20 characters per step).
 * **Stats:** rides are recorded automatically (start when moving, end after 5 min stopped). Shows
