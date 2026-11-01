@@ -388,11 +388,18 @@ class MainActivity : Activity() {
         Ui.switchRow(this, rc, "Adaptive range on the MID", "Learned from your riding: km per 1% battery", settings.sendRange) { settings.sendRange = it }
         rangeInfo = Ui.text(this, rc, "", 13f, Ui.MUTED)
         val rr = Ui.row(this, rc)
-        Ui.secondary(this, rr, "Starting value", 1f) { askStartingValue() }
+        Ui.secondary(this, rr, "Full-battery range", 1f) { askStartingValue() }
         Ui.secondary(this, rr, "Forget learned", 1f, Ui.RED) {
             AlertDialog.Builder(this).setTitle(L.t("Forget learned range?")).setMessage(L.t("Learning starts again. Useful after a battery change."))
                 .setPositiveButton(L.t("Forget")) { _, _ -> synchronized(Bike.range) { Bike.range.reset(); settings.rangeState = Bike.range.save() } }
                 .setNegativeButton(L.t("Cancel"), null).show()
+        }
+        Ui.secondary(this, rc, "Test: does the MID keep our number? (40 s)") {
+            when {
+                !Bike.connected -> toast(L.t("Connect to the bike first"))
+                (Bike.telemetry.f("SPD") ?: 0f) >= 1f -> toast(L.t("Only while stopped"))
+                else -> Bike.rangeTestAt = System.currentTimeMillis()
+            }
         }
 
         val ac = Ui.card(this, col, "MID ACCEPTED")
@@ -436,14 +443,23 @@ class MainActivity : Activity() {
         return sv
     }
 
+    private fun rangeTestText(age: Long): String {
+        val left = (Bike.RANGE_TEST_MS - age) / 1000 + 1
+        return if (age < Bike.RANGE_TEST_QUIET_MS)
+            String.format(Locale.US, L.t("TEST part 1 (nothing sent): the MID should show 123 km. Note the second it changes back. %d s left"), left)
+        else String.format(Locale.US, L.t("TEST part 2 (app reads values, sends nothing): did 123 change back now? %d s left"), left)
+    }
+
     private fun askStartingValue() {
         val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(20), dp(8), dp(20), 0) }
-        val e = Ui.number(this, box, "km per 1% battery until enough is learned", settings.kmPerPercent)
-        AlertDialog.Builder(this).setTitle(L.t("Starting value")).setView(box)
+        Ui.text(this, box, L.t("How far you get on a full battery. Original G1 battery: about 50 km. With a bigger battery, enter its range; the app sends it to the MID right away and keeps refining it from your rides."), 13f, Ui.MUTED)
+        val e = Ui.number(this, box, "km on a full battery", Math.round(settings.kmPerPercent * 100f).toFloat())
+        AlertDialog.Builder(this).setTitle(L.t("Full-battery range")).setView(box)
             .setPositiveButton(L.t("Save")) { _, _ ->
-                e.text.toString().toFloatOrNull()?.takeIf { it in 0.05f..5f }?.let {
-                    settings.kmPerPercent = it; synchronized(Bike.range) { Bike.range.priorKmPerPercent = it }
-                }
+                e.text.toString().replace(',', '.').toFloatOrNull()?.takeIf { it in 5f..500f }?.let {
+                    val kmpp = it / 100f
+                    settings.kmPerPercent = kmpp; synchronized(Bike.range) { Bike.range.priorKmPerPercent = kmpp }
+                } ?: toast(L.t("Enter a number between 5 and 500"))
             }.setNegativeButton(L.t("Cancel"), null).show()
     }
 
@@ -471,8 +487,9 @@ class MainActivity : Activity() {
         val (desc, learned, pct) = synchronized(Bike.range) { Triple(Bike.range.describe(), Bike.range.fullyLearned, Bike.range.learnedPercent) }
         rangeInfo.text = desc + (Bike.rangeKm()?.let { String.format(Locale.US, if (L.indo) " → %.0f km sekarang" else " → %.0f km now", it) } ?: "") + "\n" +
             when {
+                Bike.rangeTestElapsed() != null -> rangeTestText(Bike.rangeTestElapsed()!!)
                 !settings.sendRange -> L.t("The MID shows its own range.")
-                learned -> L.t("The MID shows this range. The MID also keeps recalculating its own, so it may briefly show that one.")
+                learned || settings.kmPerPercentSet -> L.t("The MID shows this range. The MID also keeps recalculating its own, so it may briefly show that one.")
                 else -> String.format(Locale.US, L.t("Still learning (%.0f of 20%% battery ridden): until then the MID keeps its own range."), pct)
             }
     }

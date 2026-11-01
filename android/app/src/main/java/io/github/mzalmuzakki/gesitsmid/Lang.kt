@@ -58,6 +58,16 @@ object L {
         "Still learning (%.0f of 20%% battery ridden): until then the MID keeps its own range." to
             "Masih belajar (%.0f dari 20%% baterai terpakai): sampai saat itu MID memakai jarak tempuhnya sendiri.",
         "Learned from your riding: km per 1% battery" to "Dipelajari dari cara berkendara Anda: km per 1% baterai",
+        "Full-battery range" to "Jarak baterai penuh", "km on a full battery" to "km dengan baterai penuh",
+        "How far you get on a full battery. Original G1 battery: about 50 km. With a bigger battery, enter its range; the app sends it to the MID right away and keeps refining it from your rides." to
+            "Seberapa jauh dengan baterai penuh. Baterai asli G1: sekitar 50 km. Dengan baterai lebih besar, isi jaraknya; aplikasi langsung mengirimnya ke MID dan terus menyesuaikannya dari perjalanan Anda.",
+        "Enter a number between 5 and 500" to "Isi angka antara 5 dan 500",
+        "Test: does the MID keep our number? (40 s)" to "Tes: apakah MID mempertahankan angka kita? (40 dtk)",
+        "Connect to the bike first" to "Hubungkan ke motor dulu", "Only while stopped" to "Hanya saat berhenti",
+        "TEST part 1 (nothing sent): the MID should show 123 km. Note the second it changes back. %d s left" to
+            "TES bagian 1 (tidak ada kiriman): MID seharusnya menampilkan 123 km. Catat detik saat angkanya kembali. Sisa %d dtk",
+        "TEST part 2 (app reads values, sends nothing): did 123 change back now? %d s left" to
+            "TES bagian 2 (aplikasi membaca data, tidak mengirim): apakah 123 kembali sekarang? Sisa %d dtk",
         "Starting value" to "Nilai awal", "Forget learned" to "Lupakan hasil belajar",
         "Forget learned range?" to "Lupakan jarak tempuh yang dipelajari?",
         "Learning starts again. Useful after a battery change." to "Belajar dimulai lagi. Berguna setelah ganti baterai.",

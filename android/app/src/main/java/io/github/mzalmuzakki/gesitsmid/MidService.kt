@@ -27,6 +27,14 @@ object Bike {
     @Volatile var lastFrame: Bitmap? = null
     @Volatile var lastFrameInfo = ""
     @Volatile var running = false
+    /** Range test (MID tab): when it started, 0 = not running. Phase 1 quiet, phase 2 polling only. */
+    @Volatile var rangeTestAt = 0L
+    const val RANGE_TEST_VALUE = 123f
+    const val RANGE_TEST_QUIET_MS = 20_000L
+    const val RANGE_TEST_MS = 40_000L
+    fun rangeTestElapsed(now: Long = System.currentTimeMillis()): Long? =
+        rangeTestAt.takeIf { it > 0L }?.let { now - it }?.takeIf { it < RANGE_TEST_MS }
+
     /** When the MID last sent anything (watchdog: a link that went silent is reconnected). */
     @Volatile var lastRxAt = 0L
     /** One-off commands from the UI (text, picture...), sent by the service thread. */
@@ -95,6 +103,8 @@ class Settings(ctx: Context) {
     var navDate: Boolean get() = p.getBoolean("navDate", true); set(v) = p.edit().putBoolean("navDate", v).apply()
     var navText: String get() = p.getString("nav", "")!!; set(v) = p.edit().putString("nav", v).apply()
     var kmPerPercent: Float get() = p.getFloat("kmpp", 0.5f); set(v) = p.edit().putFloat("kmpp", v).apply()
+    /** True once you entered your battery's full range yourself (e.g. a bigger custom battery): sent to the MID right away. */
+    val kmPerPercentSet: Boolean get() = p.contains("kmpp")
     var tripState: String? get() = p.getString("tripState", null); set(v) = p.edit().putString("tripState", v).apply()
     /** "auto" (BIG while riding, MAIN/TRIP when stopped), "main", "trip", "big", "rotate" */
     var dashStyle: String get() = p.getString("dashStyle", "auto")!!; set(v) = p.edit().putString("dashStyle", v).apply()
@@ -373,7 +383,7 @@ class MidService : Service() {
         Bike.loadTrip(s)
         Bike.loadBattery(s)
         L.init(s.language)
-        var tripAfterFrame = 0L
+        var tripAfterFrame = 0L; var testSent = false
         var lastWidget = 0L; var lastNotif = 0L; var lastMapsCheck = 0L; var lastSpeedMsg = 0L; var navPart = 0
         while (Bike.running) {
             try {
@@ -412,8 +422,13 @@ class MidService : Service() {
                 val now = System.currentTimeMillis()
                 // Watchdog: we ask for values every 1-3 s, so a link that stays silent is dead even if
                 // Android still calls it open (e.g. the phone suspended Bluetooth in the background).
+                val testAge = Bike.rangeTestElapsed(now)
+                val testing = testAge != null
+                val quiet = testAge != null && testAge < Bike.RANGE_TEST_QUIET_MS
+                if (testing && !testSent) { send(Mid.trip(Bike.RANGE_TEST_VALUE)); testSent = true; Bike.log("Range test: sent 123 km") }
+                if (!testing) testSent = false
                 val heard = Bike.lastRxAt
-                if (now - connectedAt > 20_000 && (if (heard > 0L) now - heard > 15_000 else now - connectedAt > 60_000)) {
+                if (!testing && now - connectedAt > 20_000 && (if (heard > 0L) now - heard > 15_000 else now - connectedAt > 60_000)) {
                     setStatus(if (heard > 0L) "No answer from the MID for 15 s - reconnecting" else "MID never answered - reconnecting")
                     Bike.connected = false
                     link?.close(); link = null
@@ -439,10 +454,10 @@ class MidService : Service() {
                     if (score >= dueScore) { due = k; dueScore = score }
                     nextPoll = minOf(nextPoll, last + period)
                 }
-                if (due != null) { send(Mid.query(due)); lastPolled[due] = now; nextPoll = now + 200 }
+                if (due != null && !quiet) { send(Mid.query(due)); lastPolled[due] = now; nextPoll = now + 200 }
 
                 // Clock: on connect, whenever the phone's minute changes, and every 30 s as a safety net.
-                if (s.syncTime) {
+                if (s.syncTime && !testing) {
                     val c = Calendar.getInstance()
                     val minute = c.get(Calendar.HOUR_OF_DAY) * 60 + c.get(Calendar.MINUTE)
                     if (minute != lastMinute || now - lastTime >= 30_000) {
@@ -499,13 +514,15 @@ class MidService : Service() {
                 // Range: the MID keeps putting its own figure back (on its own timer and whenever it redraws
                 // after a picture), so ours is re-sent every 0.25 s and again once the picture has been drawn.
                 // Only once learned from riding: a mere guess fighting the MID's own figure just flickers.
-                val rangeReady = s.sendRange && synchronized(Bike.range) { Bike.range.fullyLearned }
+                val rangeReady = !testing && s.sendRange && (s.kmPerPercentSet || synchronized(Bike.range) { Bike.range.fullyLearned })
                 if (rangeReady && (now - lastTrip >= TRIP_EVERY_MS || (tripAfterFrame > 0L && now >= tripAfterFrame))) {
                     Bike.rangeKm()?.let { send(Mid.trip(it)) }
                     lastTrip = now; tripAfterFrame = 0L
                 }
                 val nav = if (s.navOn && Bike.navFresh(now)) Bike.nav else null
-                if (Bike.speedWarn.active) {
+                if (testing) {
+                    // range test: nothing else is written to the MID
+                } else if (Bike.speedWarn.active) {
                     if (now - lastSpeedMsg >= 2000) {                       // speed warning first
                         send(Mid.nav("! ${tm.f("SPD")?.toInt() ?: 0} > ${s.speedLimit} km/h"))
                         lastSpeedMsg = now; lastNav = 0L
@@ -532,7 +549,7 @@ class MidService : Service() {
                     lastFrameKey = ""                      // MID did not confirm the last picture: send it again
                     Bike.log("MID did not confirm the picture - resending")
                 }
-                if (s.screenMode != "off" && now - lastFrame >= s.frameSeconds * 1000L) {
+                if (!testing && s.screenMode != "off" && now - lastFrame >= s.frameSeconds * 1000L) {
                     val t0 = System.currentTimeMillis()
                     val b64 = picturePayload(s, now)
                     if (b64 != null) {

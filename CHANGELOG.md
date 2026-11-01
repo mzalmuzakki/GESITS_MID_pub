@@ -5,6 +5,13 @@ Versions are **v\<major\>.\<xx\>.\<yy\>** (see `android/version.properties`):
 * **xx**: feature milestone (new or changed things you notice); resets yy
 * **yy**: fixes and polish only
 
+## v0.12.05
+For bikes with a bigger (custom) battery, where the MID's own range assumes the original one:
+* **Full-battery range** (MID tab → Range): enter how far you get on a full battery. The app sends
+  that range to the MID right away, and keeps refining it from your rides.
+* **Range test** (40 s, while stopped): sends 123 km once, then sends nothing for 20 s, then only reads
+  values for 20 s. When the MID goes back to its own number shows what makes it do that.
+
 ## v0.12.04
 Range on the MID:
 * The starting guess is now 0.5 km per 1% (about 50 km on a full G1 battery). It was 1.0, which
