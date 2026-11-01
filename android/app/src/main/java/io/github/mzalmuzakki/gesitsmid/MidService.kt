@@ -289,6 +289,10 @@ class MidService : Service() {
             val k = cmd.substring(3).substringBefore('=').substringBefore('?').trim()
             if (k in Bike.ACK_KEYS && cmd.contains('=')) Bike.sentAt[k] = lastSend
         }
+        // Range: whatever we send may make the MID redraw with its own figure, so ours follows right after
+        // (at most every 120 ms; pictures get their own follow-up once the MID has drawn them).
+        if (cmd.startsWith("AT+TRIP")) lastTripSent = lastSend
+        else if (rangeOn && !cmd.startsWith("AT+MAPS") && lastSend - lastTripSent >= 120) Bike.rangeKm()?.let { send(Mid.trip(it)) }
     }
 
     /**
@@ -381,7 +385,7 @@ class MidService : Service() {
     private fun runLoop() {
         val s = Settings(this)
         var navIdx = 0
-        var lastFrame = 0L; var lastTrip = 0L; var lastNav = 0L; var lastTime = 0L
+        var lastFrame = 0L; var lastNav = 0L; var lastTime = 0L
         var lastMinute = -1; var lastLearn = 0L; var lastSave = 0L
         var backoff = 2000L; var offSince = 0L
         Bike.loadRange(s)
@@ -435,6 +439,7 @@ class MidService : Service() {
                 // Android still calls it open (e.g. the phone suspended Bluetooth in the background).
                 val testAge = Bike.rangeTestElapsed(now)
                 val testing = testAge != null
+                rangeOn = !testing && s.sendRange
                 val quiet = testAge != null && testAge < Bike.RANGE_TEST_QUIET_MS
                 if (testing && !testSent) { send(Mid.trip(Bike.RANGE_TEST_VALUE)); testSent = true; Bike.log("Range test: sent 123 km") }
                 if (!testing) testSent = false
@@ -526,10 +531,10 @@ class MidService : Service() {
                 }
                 // Range: the MID keeps putting its own figure back (on its own timer and whenever it redraws
                 // after a picture), so ours is re-sent every 0.25 s and again once the picture has been drawn.
-                val rangeReady = !testing && s.sendRange
-                if (rangeReady && (now - lastTrip >= TRIP_EVERY_MS || (tripAfterFrame > 0L && now >= tripAfterFrame))) {
+                val rangeReady = rangeOn
+                if (rangeReady && (now - lastTripSent >= TRIP_EVERY_MS || (tripAfterFrame > 0L && now >= tripAfterFrame))) {
                     Bike.rangeKm()?.let { send(Mid.trip(it)) }
-                    lastTrip = now; tripAfterFrame = 0L
+                    tripAfterFrame = 0L
                 }
                 val nav = if (s.navOn && Bike.navFresh(now)) Bike.nav else null
                 if (testing) {
@@ -574,7 +579,7 @@ class MidService : Service() {
                 }
 
                 // Sleep until the next thing is due; a command from the UI wakes us early.
-                val nextDue = minOf(nextPoll, lastLearn + 1000, if (rangeReady) minOf(lastTrip + TRIP_EVERY_MS, if (tripAfterFrame > 0L) tripAfterFrame else Long.MAX_VALUE) else Long.MAX_VALUE,
+                val nextDue = minOf(nextPoll, lastLearn + 1000, if (rangeReady) minOf(lastTripSent + TRIP_EVERY_MS, if (tripAfterFrame > 0L) tripAfterFrame else Long.MAX_VALUE) else Long.MAX_VALUE,
                     lastFrame + s.frameSeconds * 1000L)
                 val wait = (nextDue - System.currentTimeMillis()).coerceIn(30L, 1000L)
                 Bike.outbox.poll(wait, java.util.concurrent.TimeUnit.MILLISECONDS)?.let { cmd ->
@@ -600,6 +605,8 @@ class MidService : Service() {
 
     private var lastGear: String? = null
     @Volatile private var connectedAt = 0L
+    @Volatile private var rangeOn = false       // send our range to the MID (setting on, no range test running)
+    private var lastTripSent = 0L
     private var lastSohDay: String? = null
 
     private fun navTurnWord(t: NavParser.Turn) = L.t(when (t) {

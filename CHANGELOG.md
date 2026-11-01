@@ -14,6 +14,9 @@ Versions are **v\<major\>.\<xx\>.\<yy\>** (see `android/version.properties`):
 * Nothing to enter: the "Full-battery range" setting from v0.12.05 is gone. Starts at the original
   battery's ~50 km and adapts from there. The range is sent to the MID from the start.
 * MID tab → Range shows what has been learned: battery kWh, Wh/km and the range at 100%.
+* Less flicker between our range and the MID's own (original-battery) figure: our range is sent every
+  0.25 s, right after every other command the app sends (anything may make the MID redraw), and once
+  more after each picture has been drawn.
 
 ## v0.12.05
 For bikes with a bigger (custom) battery, where the MID's own range assumes the original one:

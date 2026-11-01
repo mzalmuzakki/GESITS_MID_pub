@@ -33,7 +33,7 @@ One screen with four tabs at the bottom:
   within the first kilometre. Battery capacity is learned from energy against battery %, while riding
   and while charging, so a bigger custom battery is recognised by itself (usually after one charge).
   It starts at the original G1 battery (~1.5 kWh, ~30 Wh/km, ~50 km) and adapts from there. It sends
-  that to the MID's range display (`AT+TRIP`) every 0.25 s and right after each picture: the MID keeps
+  that to the MID's range display (`AT+TRIP`) every 0.25 s, right after every other command and after each picture: the MID keeps
   recalculating its own figure (for the original battery), so it may still briefly show that one.
   **Range test** (MID tab) helps find out what makes the MID go back to its own figure. Gaps in the
   data and impossible readings are ignored. **Forget learned range** starts over (e.g. after a battery change).
