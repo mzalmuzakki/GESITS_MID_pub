@@ -401,7 +401,7 @@ class MainActivity : Activity() {
             }
         }
 
-        val ac = Ui.card(this, col, "MID ACCEPTED")
+        val ac = Ui.card(this, col, "SENT TO THE MID")
         ackText = Ui.text(this, ac, "", 13f, mono = true)
 
         val dc = Ui.card(this, col, "TURN-BY-TURN DIRECTIONS")
@@ -454,17 +454,20 @@ class MainActivity : Activity() {
         Bike.lastFrame?.let { if (preview.tag !== it) { preview.setImageBitmap(it); preview.tag = it } }
         previewInfo.text = Bike.lastFrameInfo.ifEmpty { L.t(if (Bike.connected) "Waiting for the first picture…" else "Connect to the bike to send pictures") }
         val now = System.currentTimeMillis()
+        // Some MIDs answer writes with the command's name; others (seen on a G1) answer only questions.
+        val confirms = Bike.ackAt.isNotEmpty()
         ackText.text = listOf("MAPS" to "picture", "TIME" to "clock", "NAV" to "text", "TRIP" to "range").joinToString("\n") { (k, label) ->
             val sent = Bike.sentAt[k]; val ack = Bike.ackAt[k]
             val state = when {
                 sent == null -> "-"
+                !confirms -> L.t("sent") + " " + ((now - sent) / 1000) + " s"
                 ack != null && ack >= sent -> "✓ " + ((now - ack) / 1000) + " s"
                 ack != null -> "…"
                 now - sent < 6000 -> "…"
-                else -> "✗ no reply"
+                else -> "✗ " + L.t("no reply")
             }
-            String.format(Locale.US, "%-8s %s", label, state)
-        }
+            String.format(Locale.US, "%-8s %s", L.t(label), state)
+        } + if (!confirms && Bike.sentAt.isNotEmpty()) "\n" + L.t("This MID doesn't confirm writes; check its screen.") else ""
         navStatus.text = when {
             !notificationAccessOn() -> "⚠ " + L.t("Off: tap the button, then turn on \"Gesits MID directions\".")
             Bike.navFresh() -> Bike.nav!!.let { "→ ${it.distance ?: ""} ${it.street}" }

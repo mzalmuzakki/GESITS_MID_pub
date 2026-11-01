@@ -61,6 +61,8 @@ object L {
         "Learns your battery size and how much you use, by itself" to "Mempelajari ukuran baterai dan pemakaian Anda secara otomatis",
         "The MID shows this range. It also keeps recalculating its own (for the original battery), so it may briefly show that one." to
             "MID menampilkan jarak tempuh ini. MID juga terus menghitung miliknya sendiri (untuk baterai asli), jadi angka itu sesekali muncul sebentar.",
+        "sent" to "terkirim", "no reply" to "tak dibalas", "picture" to "gambar", "clock" to "jam", "text" to "teks", "range" to "jarak",
+        "This MID doesn't confirm writes; check its screen." to "MID ini tidak membalas kiriman; lihat layarnya.",
         "Full-battery range" to "Jarak baterai penuh", "km on a full battery" to "km dengan baterai penuh",
         "How far you get on a full battery. Original G1 battery: about 50 km. With a bigger battery, enter its range; the app sends it to the MID right away and keeps refining it from your rides." to
             "Seberapa jauh dengan baterai penuh. Baterai asli G1: sekitar 50 km. Dengan baterai lebih besar, isi jaraknya; aplikasi langsung mengirimnya ke MID dan terus menyesuaikannya dari perjalanan Anda.",
@@ -94,7 +96,7 @@ object L {
         "Picture ready - it will be shown on the MID" to "Gambar siap - akan ditampilkan di MID",
         "Picture too detailed for the MID; try a simpler one" to "Gambar terlalu detail untuk MID; coba yang lebih sederhana",
         "That file is not a picture" to "File itu bukan gambar", "Could not read that picture" to "Gambar tidak bisa dibaca",
-        "MID ACCEPTED" to "DITERIMA MID",
+        "MID ACCEPTED" to "DITERIMA MID", "SENT TO THE MID" to "DIKIRIM KE MID",
         "TURN-BY-TURN DIRECTIONS" to "PETUNJUK ARAH",
         "Show Google Maps directions on the MID" to "Tampilkan petunjuk Google Maps di MID",
         "Reads only Google Maps navigation notifications. Nothing else, nothing leaves the phone." to

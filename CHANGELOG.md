@@ -5,6 +5,10 @@ Versions are **v\<major\>.\<xx\>.\<yy\>** (see `android/version.properties`):
 * **xx**: feature milestone (new or changed things you notice); resets yy
 * **yy**: fixes and polish only
 
+## v0.13.01
+"Sent to the MID" card (was "MID accepted"): this G1's MID answers questions but doesn't confirm
+writes, so the card now shows when each item was last sent instead of "✗ no reply".
+
 ## v0.13.00
 **Fully adaptive range, from energy:** range = battery % × battery capacity ÷ your consumption.
 * Consumption (Wh/km) is measured from voltage × current over your last 15 km, so it follows your
