@@ -5,7 +5,7 @@ Versions are **v\<major\>.\<xx\>.\<yy\>** (see `android/version.properties`):
 * **xx**: feature milestone (new or changed things you notice); resets yy
 * **yy**: fixes and polish only
 
-## v0.12.03
+## v0.12.04
 Range on the MID:
 * The starting guess is now 0.5 km per 1% (about 50 km on a full G1 battery). It was 1.0, which
   showed 100 km against the MID's 50.
@@ -13,6 +13,9 @@ Range on the MID:
   until then the MID keeps its own figure, instead of the two switching back and forth.
 * Once learned it is re-sent every 0.25 s and once more 0.4 s after each picture, because the MID keeps
   recalculating its own range. The MID tab explains which range the MID is showing.
+
+## v0.12.03
+Range re-sent every 0.5 s and after each picture (superseded by v0.12.04).
 
 ## v0.12.02
 Background connection fixes:
