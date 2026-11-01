@@ -385,7 +385,7 @@ class MainActivity : Activity() {
         Ui.switchRow(this, tc, "Show today's date when empty", "e.g. 31 Oktober 2026", settings.navDate) { settings.navDate = it }
 
         val rc = Ui.card(this, col, "RANGE")
-        Ui.switchRow(this, rc, "Adaptive range on the MID", "Learns your battery size and how much you use, by itself", settings.sendRange) { settings.sendRange = it }
+        Ui.switchRow(this, rc, "Adaptive range in the MID text line", "Learns your battery size and how much you use, by itself. Shown when you have no text of your own.", settings.rangeLine) { settings.rangeLine = it }
         rangeInfo = Ui.text(this, rc, "", 13f, Ui.MUTED)
         val rr = Ui.row(this, rc)
         Ui.secondary(this, rr, "Forget learned", 1f, Ui.RED) {
@@ -393,13 +393,7 @@ class MainActivity : Activity() {
                 .setPositiveButton(L.t("Forget")) { _, _ -> synchronized(Bike.range) { Bike.range.reset(); Bike.energy.reset(); settings.rangeState = Bike.range.save(); settings.energyState = Bike.energy.save() } }
                 .setNegativeButton(L.t("Cancel"), null).show()
         }
-        Ui.secondary(this, rc, "Test: does the MID keep our number? (40 s)") {
-            when {
-                !Bike.connected -> toast(L.t("Connect to the bike first"))
-                (Bike.telemetry.f("SPD") ?: 0f) >= 1f -> toast(L.t("Only while stopped"))
-                else -> Bike.rangeTestAt = System.currentTimeMillis()
-            }
-        }
+        Ui.switchRow(this, rc, "Also try to replace the MID's range figure", "On the G1 the MID puts its own number back instantly, so this only flickers.", settings.rangeOverride) { settings.rangeOverride = it }
 
         val ac = Ui.card(this, col, "SENT TO THE MID")
         ackText = Ui.text(this, ac, "", 13f, mono = true)
@@ -442,12 +436,6 @@ class MainActivity : Activity() {
         return sv
     }
 
-    private fun rangeTestText(age: Long): String {
-        val left = (Bike.RANGE_TEST_MS - age) / 1000 + 1
-        return if (age < Bike.RANGE_TEST_QUIET_MS)
-            String.format(Locale.US, L.t("TEST part 1 (nothing sent): the MID should show 123 km. Note the second it changes back. %d s left"), left)
-        else String.format(Locale.US, L.t("TEST part 2 (app reads values, sends nothing): did 123 change back now? %d s left"), left)
-    }
 
     private fun refreshMid() {
         if (!::preview.isInitialized) return
@@ -475,11 +463,8 @@ class MainActivity : Activity() {
         }
         val desc = synchronized(Bike.range) { Bike.energy.describe(L.indo) }
         rangeInfo.text = desc + (Bike.rangeKm()?.let { String.format(Locale.US, if (L.indo) " → %.0f km sekarang" else " → %.0f km now", it) } ?: "") + "\n" +
-            when {
-                Bike.rangeTestElapsed() != null -> rangeTestText(Bike.rangeTestElapsed()!!)
-                !settings.sendRange -> L.t("The MID shows its own range.")
-                else -> L.t("The MID shows this range. It also keeps recalculating its own (for the original battery), so it may briefly show that one.")
-            }
+            (Bike.telemetry.f("RANGE")?.let { String.format(Locale.US, L.t("The MID's own range figure: %.0f km (it assumes the original battery and can't be changed over Bluetooth)."), it) }
+                ?: L.t("The MID's own range figure assumes the original battery and can't be changed over Bluetooth."))
     }
 
     // ================================================================ TRIPS

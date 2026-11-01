@@ -69,16 +69,17 @@ def cmd_watch(args) -> None:
         _watch(c, [k.upper() for k in args.keys], args.seconds)
 
 
-BLOCKED_SET_KEYS = {"ODO"}   # never: the odometer
+# Never written: the odometer; RANGE (on a G1, AT+RANGE="..." made the MID stop answering until restarted).
+BLOCKED_SET_KEYS = {"ODO", "RANGE"}
 
 
 def cmd_set(args) -> None:
     """Write AT+KEY="value" once, then read the key back for a while to see whether the MID keeps it."""
     key = args.key.upper()
     if key in BLOCKED_SET_KEYS:
-        raise SystemExit(f"Refusing to write {key} (odometer).")
+        raise SystemExit(f"Refusing to write {key} (odometer, or known to upset the MID).")
     with _connect(args) as c:
-        before = c.request(key)
+        before = c.request(key) or c.request(key)   # the first question after connecting is sometimes missed
         print(f"{key} before: {before or '(no reply)'}")
         if before is not None:
             print(f"To undo: python -m gesits set {args.uri} {key} {before}")

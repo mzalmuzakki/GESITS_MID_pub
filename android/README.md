@@ -28,15 +28,14 @@ One screen with four tabs at the bottom:
   temperatures and errors.
 * Sends a picture to the MID map area every few seconds: **your own live dashboard** (same design as
   `docs/img/custom_screen.png`) or **a picture you choose**.
-* **Adaptive range on the MID:** range = battery % × battery capacity ÷ your consumption, all learned
-  by the app. Consumption (Wh/km) comes from voltage × current over your last 15 km, so it adapts
+* **Adaptive range in the MID text line:** range = battery % × battery capacity ÷ your consumption, all
+  learned by the app. Consumption (Wh/km) comes from voltage × current over your last 15 km, so it adapts
   within the first kilometre. Battery capacity is learned from energy against battery %, while riding
   and while charging, so a bigger custom battery is recognised by itself (usually after one charge).
-  It starts at the original G1 battery (~1.5 kWh, ~30 Wh/km, ~50 km) and adapts from there. It sends
-  that to the MID's range display (`AT+TRIP`) every 0.25 s, right after every other command and after each picture: the MID keeps
-  recalculating its own figure (for the original battery), so it may still briefly show that one.
-  **Range test** (MID tab) helps find out what makes the MID go back to its own figure. Gaps in the
-  data and impossible readings are ignored. **Forget learned range** starts over (e.g. after a battery change).
+  It starts at the original G1 battery (~1.5 kWh, ~30 Wh/km, ~50 km). It's shown as "RANGE 112 km" in
+  the MID's text line, because the MID's own range figure is its own calculation for the original
+  battery: on a G1 it can't be replaced over Bluetooth (`AT+TRIP` is overwritten instantly). The
+  range card shows both. **Forget learned range** starts over (e.g. after a battery change).
 * **Clock sync:** sets the MID clock from your phone on connect, at every minute change, and every 30 s.
 * Optionally shows your own text line (rotating, 20 characters per step).
 * **Stats:** rides are recorded automatically (start when moving, end after 5 min stopped). Shows

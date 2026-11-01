@@ -50,6 +50,15 @@ object L {
         "TEXT LINE (20 CHARACTERS PER STEP)" to "BARIS TEKS (20 KARAKTER PER LANGKAH)",
         "e.g. Halo Gesits! Hati-hati di jalan" to "mis. Halo Gesits! Hati-hati di jalan",
         "Save text" to "Simpan teks", "Text cleared" to "Teks dihapus",
+        "Adaptive range in the MID text line" to "Jarak tempuh adaptif di baris teks MID",
+        "Learns your battery size and how much you use, by itself. Shown when you have no text of your own." to
+            "Mempelajari ukuran baterai dan pemakaian Anda secara otomatis. Tampil saat Anda tidak mengisi teks sendiri.",
+        "Also try to replace the MID's range figure" to "Coba juga ganti angka jarak tempuh MID",
+        "On the G1 the MID puts its own number back instantly, so this only flickers." to "Di G1, MID langsung mengembalikan angkanya sendiri, jadi hanya berkedip.",
+        "The MID's own range figure: %.0f km (it assumes the original battery and can't be changed over Bluetooth)." to
+            "Angka jarak tempuh MID sendiri: %.0f km (mengasumsikan baterai asli dan tidak bisa diubah lewat Bluetooth).",
+        "The MID's own range figure assumes the original battery and can't be changed over Bluetooth." to
+            "Angka jarak tempuh MID sendiri mengasumsikan baterai asli dan tidak bisa diubah lewat Bluetooth.",
         "Show today's date when empty" to "Tampilkan tanggal hari ini jika kosong",
         "Adaptive range on the MID" to "Jarak tempuh adaptif di MID",
         "The MID shows its own range." to "MID menampilkan jarak tempuhnya sendiri.",
@@ -67,13 +76,8 @@ object L {
         "How far you get on a full battery. Original G1 battery: about 50 km. With a bigger battery, enter its range; the app sends it to the MID right away and keeps refining it from your rides." to
             "Seberapa jauh dengan baterai penuh. Baterai asli G1: sekitar 50 km. Dengan baterai lebih besar, isi jaraknya; aplikasi langsung mengirimnya ke MID dan terus menyesuaikannya dari perjalanan Anda.",
         "Enter a number between 5 and 500" to "Isi angka antara 5 dan 500",
-        "Test: does the MID keep our number? (40 s)" to "Tes: apakah MID mempertahankan angka kita? (40 dtk)",
-        "Connect to the bike first" to "Hubungkan ke motor dulu", "Only while stopped" to "Hanya saat berhenti",
-        "TEST part 1 (nothing sent): the MID should show 123 km. Note the second it changes back. %d s left" to
-            "TES bagian 1 (tidak ada kiriman): MID seharusnya menampilkan 123 km. Catat detik saat angkanya kembali. Sisa %d dtk",
-        "TEST part 2 (app reads values, sends nothing): did 123 change back now? %d s left" to
-            "TES bagian 2 (aplikasi membaca data, tidak mengirim): apakah 123 kembali sekarang? Sisa %d dtk",
-        "Starting value" to "Nilai awal", "Forget learned" to "Lupakan hasil belajar",
+                "Connect to the bike first" to "Hubungkan ke motor dulu", "Only while stopped" to "Hanya saat berhenti",
+                        "Starting value" to "Nilai awal", "Forget learned" to "Lupakan hasil belajar",
         "Forget learned range?" to "Lupakan jarak tempuh yang dipelajari?",
         "Learning starts again. Useful after a battery change." to "Belajar dimulai lagi. Berguna setelah ganti baterai.",
         "Forget" to "Lupakan", "Cancel" to "Batal", "Save" to "Simpan", "Saved" to "Tersimpan", "Delete" to "Hapus",

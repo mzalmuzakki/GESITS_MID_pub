@@ -149,6 +149,9 @@ now use 320 × 128.
 * `AT+TRIP="123"` shows 123 on the MID but it **reverts instantly** to its own 50: the MID refreshes
   its range many times a second, so overriding it with `AT+TRIP` can only flicker.
 * No reply to `CYCLE`, `CAP`, `PWR`, `RPM` and the other probe names.
+* **Don't write `AT+RANGE="…"`:** the MID read back 050.0, then stopped answering anything until the
+  ignition was switched off and on. `AT+NUMBAT="1"` was accepted without effect.
+* So the app shows its adaptive range in the `AT+NAV` text line instead.
 
 ## 5. Still open
 * Units/meaning of `CBAT` and `TRT`. Official ERR table.

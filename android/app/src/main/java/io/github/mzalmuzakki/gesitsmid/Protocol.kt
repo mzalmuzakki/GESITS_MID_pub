@@ -20,7 +20,7 @@ object Mid {
     const val FRAME_H = 128
 
     /** One key is polled every 200 ms, round robin. */
-    val POLL_KEYS = listOf("SPD", "IBAT", "VBAT", "SOC", "ODO", "MODE", "PARK", "ERR", "TBAT", "TMOT", "TINV", "SOH")
+    val POLL_KEYS = listOf("SPD", "IBAT", "VBAT", "SOC", "ODO", "MODE", "PARK", "ERR", "TBAT", "TMOT", "TINV", "SOH", "RANGE")
 
     fun query(key: String) = "AT+$key?\r\n"
     fun time(hour: Int, minute: Int) = String.format(Locale.US, "AT+TIME=\"%02d%02d\"\r\n", hour, minute)

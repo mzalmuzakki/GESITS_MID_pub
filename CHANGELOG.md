@@ -5,6 +5,17 @@ Versions are **v\<major\>.\<xx\>.\<yy\>** (see `android/version.properties`):
 * **xx**: feature milestone (new or changed things you notice); resets yy
 * **yy**: fixes and polish only
 
+## v0.14.00
+Tested on a real G1 (MID `11-50-09-G1`) with the laptop toolkit: the MID's own range figure is its own
+calculation for the original battery (`AT+RANGE?` = 50.0 at 100%). `AT+TRIP` is overwritten instantly
+and writing `AT+RANGE` made the MID stop answering. So:
+* **The adaptive range goes in the MID's text line** ("RANGE 112 km", alternating with the date),
+  which the app fully controls. Your own text still takes priority.
+* The range card shows the MID's own figure for comparison.
+* Replacing the MID's range figure (`AT+TRIP`) is now an option, off by default (it only flickers on a G1).
+* The range test is removed (it answered its question).
+* Laptop toolkit: `set` refuses `RANGE`.
+
 ## v0.13.01
 "Sent to the MID" card (was "MID accepted"): this G1's MID answers questions but doesn't confirm
 writes, so the card now shows when each item was last sent instead of "✗ no reply".

@@ -27,14 +27,6 @@ object Bike {
     @Volatile var lastFrame: Bitmap? = null
     @Volatile var lastFrameInfo = ""
     @Volatile var running = false
-    /** Range test (MID tab): when it started, 0 = not running. Phase 1 quiet, phase 2 polling only. */
-    @Volatile var rangeTestAt = 0L
-    const val RANGE_TEST_VALUE = 123f
-    const val RANGE_TEST_QUIET_MS = 20_000L
-    const val RANGE_TEST_MS = 40_000L
-    fun rangeTestElapsed(now: Long = System.currentTimeMillis()): Long? =
-        rangeTestAt.takeIf { it > 0L }?.let { now - it }?.takeIf { it < RANGE_TEST_MS }
-
     /** When the MID last sent anything (watchdog: a link that went silent is reconnected). */
     @Volatile var lastRxAt = 0L
     /** One-off commands from the UI (text, picture...), sent by the service thread. */
@@ -103,7 +95,10 @@ class Settings(ctx: Context) {
     var deviceName: String? get() = p.getString("deviceName", null); set(v) = p.edit().putString("deviceName", v).apply()
     /** "dashboard", "picture", "grid" (calibration) or "off" */
     var screenMode: String get() = p.getString("screen", "dashboard")!!; set(v) = p.edit().putString("screen", v).apply()
-    var sendRange: Boolean get() = p.getBoolean("range", true); set(v) = p.edit().putBoolean("range", v).apply()
+    /** Show the app's adaptive range in the MID text line (when you have no text of your own). */
+    var rangeLine: Boolean get() = p.getBoolean("rangeLine", true); set(v) = p.edit().putBoolean("rangeLine", v).apply()
+    /** Also try to replace the MID's own range figure with AT+TRIP. On a G1 (MID 11-50-09-G1) it reverts instantly. */
+    var rangeOverride: Boolean get() = p.getBoolean("rangeOverride", false); set(v) = p.edit().putBoolean("rangeOverride", v).apply()
     var syncTime: Boolean get() = p.getBoolean("time", true); set(v) = p.edit().putBoolean("time", v).apply()
     /** Show today's date on the MID text line when no own text is set (like GRID Mobile). */
     var navDate: Boolean get() = p.getBoolean("navDate", true); set(v) = p.edit().putBoolean("navDate", v).apply()
@@ -364,7 +359,7 @@ class MidService : Service() {
             "SOC", "MODE" -> 5000L
             "ERR" -> 10_000L
             "TBAT", "TMOT", "TINV" -> 15_000L
-            "SOH" -> 60_000L
+            "SOH", "RANGE" -> 60_000L
             "TRT" -> if (fast) 500L else 30_000L
             else -> 10_000L
         }
@@ -398,7 +393,7 @@ class MidService : Service() {
                 Bike.energy.seedCapacity(r.sumOf { it.energyWh.toDouble() }.toFloat(), r.sumOf { (it.socStart - it.socEnd).toDouble() }.toFloat())
             }
         }
-        var tripAfterFrame = 0L; var testSent = false
+        var tripAfterFrame = 0L; var lastNavText = ""
         var lastWidget = 0L; var lastNotif = 0L; var lastMapsCheck = 0L; var lastSpeedMsg = 0L; var navPart = 0
         while (Bike.running) {
             try {
@@ -437,14 +432,9 @@ class MidService : Service() {
                 val now = System.currentTimeMillis()
                 // Watchdog: we ask for values every 1-3 s, so a link that stays silent is dead even if
                 // Android still calls it open (e.g. the phone suspended Bluetooth in the background).
-                val testAge = Bike.rangeTestElapsed(now)
-                val testing = testAge != null
-                rangeOn = !testing && s.sendRange
-                val quiet = testAge != null && testAge < Bike.RANGE_TEST_QUIET_MS
-                if (testing && !testSent) { send(Mid.trip(Bike.RANGE_TEST_VALUE)); testSent = true; Bike.log("Range test: sent 123 km") }
-                if (!testing) testSent = false
+                rangeOn = s.rangeOverride
                 val heard = Bike.lastRxAt
-                if (!testing && now - connectedAt > 20_000 && (if (heard > 0L) now - heard > 15_000 else now - connectedAt > 60_000)) {
+                if (now - connectedAt > 20_000 && (if (heard > 0L) now - heard > 15_000 else now - connectedAt > 60_000)) {
                     setStatus(if (heard > 0L) "No answer from the MID for 15 s - reconnecting" else "MID never answered - reconnecting")
                     Bike.connected = false
                     link?.close(); link = null
@@ -470,10 +460,10 @@ class MidService : Service() {
                     if (score >= dueScore) { due = k; dueScore = score }
                     nextPoll = minOf(nextPoll, last + period)
                 }
-                if (due != null && !quiet) { send(Mid.query(due)); lastPolled[due] = now; nextPoll = now + 200 }
+                if (due != null) { send(Mid.query(due)); lastPolled[due] = now; nextPoll = now + 200 }
 
                 // Clock: on connect, whenever the phone's minute changes, and every 30 s as a safety net.
-                if (s.syncTime && !testing) {
+                if (s.syncTime) {
                     val c = Calendar.getInstance()
                     val minute = c.get(Calendar.HOUR_OF_DAY) * 60 + c.get(Calendar.MINUTE)
                     if (minute != lastMinute || now - lastTime >= 30_000) {
@@ -537,9 +527,7 @@ class MidService : Service() {
                     tripAfterFrame = 0L
                 }
                 val nav = if (s.navOn && Bike.navFresh(now)) Bike.nav else null
-                if (testing) {
-                    // range test: nothing else is written to the MID
-                } else if (Bike.speedWarn.active) {
+                if (Bike.speedWarn.active) {
                     if (now - lastSpeedMsg >= 2000) {                       // speed warning first
                         send(Mid.nav("! ${tm.f("SPD")?.toInt() ?: 0} > ${s.speedLimit} km/h"))
                         lastSpeedMsg = now; lastNav = 0L
@@ -552,11 +540,22 @@ class MidService : Service() {
                         send(Mid.nav(parts[navPart++])); lastNav = now
                     }
                 } else {
-                    val parts = Mid.splitNav(s.navText).ifEmpty { if (s.navDate) listOf(Mid.dateText()) else emptyList() }
-                    if (parts.isNotEmpty() && now - lastNav >= 5000 && (parts.size > 1 || now - lastNav >= 60_000)) {
+                    // Your own text; otherwise the app's adaptive range (the MID's own range figure can't be
+                    // replaced on a G1) and/or the date, taking turns every 5 s.
+                    val parts = Mid.splitNav(s.navText).ifEmpty {
+                        listOfNotNull(
+                            if (s.rangeLine) Bike.rangeKm()?.let { (if (L.indo) "JARAK " else "RANGE ") + Math.round(it) + " km" } else null,
+                            if (s.navDate) Mid.dateText() else null,
+                        )
+                    }
+                    if (parts.isNotEmpty() && now - lastNav >= 5000) {
                         navIdx %= parts.size
-                        send(Mid.nav(parts[navIdx++]))     // one fixed line: refreshed once a minute only
-                        lastNav = now
+                        val text = parts[navIdx]
+                        // one fixed line is re-sent only when it changes (or once a minute)
+                        if (parts.size > 1 || text != lastNavText || now - lastNav >= 60_000) {
+                            send(Mid.nav(text)); lastNavText = text; lastNav = now
+                        }
+                        navIdx++
                     }
                 }
                 val mapsSent = Bike.sentAt["MAPS"] ?: 0L
@@ -566,7 +565,7 @@ class MidService : Service() {
                     lastFrameKey = ""                      // MID did not confirm the last picture: send it again
                     Bike.log("MID did not confirm the picture - resending")
                 }
-                if (!testing && s.screenMode != "off" && now - lastFrame >= s.frameSeconds * 1000L) {
+                if (s.screenMode != "off" && now - lastFrame >= s.frameSeconds * 1000L) {
                     val t0 = System.currentTimeMillis()
                     val b64 = picturePayload(s, now)
                     if (b64 != null) {
