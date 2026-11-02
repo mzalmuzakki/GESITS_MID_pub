@@ -5,6 +5,12 @@ Versions are **v\<major\>.\<xx\>.\<yy\>** (see `android/version.properties`):
 * **xx**: feature milestone (new or changed things you notice); resets yy
 * **yy**: fixes and polish only
 
+## v0.14.03
+**Battery current sign is learned per bike.** On a G1 with a custom battery the current drawn is
+reported negative (rides saved as "-44 Wh", "charging started" while riding, -81 W while parked).
+The app now learns the sign during about 40 s of riding and corrects it, so the energy-based range,
+Wh/km, power, regen and charging detection work with such batteries too.
+
 ## v0.14.02
 From a real ride log (the MID dropped characters: "AT+VDO=003791.6", "AT+TINV003796.0"):
 * **One question at a time:** the app waits for each answer (max 0.3 s), keeps 80 ms between commands

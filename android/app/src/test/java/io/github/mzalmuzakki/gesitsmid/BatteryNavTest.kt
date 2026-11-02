@@ -71,4 +71,16 @@ class BatteryNavTest {
         assertEquals(NavParser.Turn.SLIGHT_LEFT, NavParser.turnOf("Keep left at the fork"))
         assertEquals(NavParser.Turn.ARRIVE, NavParser.turnOf("Anda telah tiba di tujuan"))
     }
+
+    @Test fun learnsReversedBatteryCurrent() {
+        val c = CurrentSign()
+        var changed = false
+        repeat(60) { i -> changed = changed or c.update(35f, if (i % 10 == 0) 8f else -25f) }   // drawn negative, some regen
+        assertTrue(changed); assertEquals(-1, c.sign)
+        val c2 = CurrentSign(); c2.load(c.save()); assertEquals(-1, c2.sign); assertTrue(c2.decided)
+        repeat(60) { assertFalse(CurrentSign().update(0f, -1f)) }      // parked: nothing learned
+        val t = Telemetry(); t.ibatSign = -1
+        assertTrue(t.offer("IBAT", "-25")); assertEquals(25f, t.f("IBAT")); assertEquals(-25f, t.ibatRaw)
+    }
 }
+

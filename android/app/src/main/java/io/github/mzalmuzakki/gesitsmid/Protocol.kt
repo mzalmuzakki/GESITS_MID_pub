@@ -128,6 +128,10 @@ class Telemetry {
     val raw = ConcurrentHashMap<String, String>()
     @Volatile var lastUpdate = 0L
     private val pending = ConcurrentHashMap<String, String>()
+    /** -1 if this bike's battery reports current drawn as negative (see CurrentSign); IBAT is stored as "drawn > 0". */
+    @Volatile var ibatSign = 1
+    /** IBAT exactly as the MID sent it, for learning the sign. */
+    @Volatile var ibatRaw: Float? = null
 
     fun put(key: String, value: String) { raw[key] = value; lastUpdate = System.currentTimeMillis() }
 
@@ -145,7 +149,10 @@ class Telemetry {
             if (big && pending[key] != v) { pending[key] = v; return false }
         }
         pending.remove(key)
-        put(key, v)
+        if (key == "IBAT") {
+            val a = v.toFloat(); ibatRaw = a
+            put(key, if (ibatSign < 0) (-a).toString() else v)
+        } else put(key, v)
         return true
     }
     fun f(key: String): Float? = raw[key]?.trim('"', ' ')?.toFloatOrNull()

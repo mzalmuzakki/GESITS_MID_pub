@@ -152,6 +152,8 @@ now use 320 × 128.
 * **Don't write `AT+RANGE="…"`:** the MID read back 050.0, then stopped answering anything until the
   ignition was switched off and on. `AT+NUMBAT="1"` was accepted without effect.
 * So the app shows its adaptive range in the `AT+NAV` text line instead.
+* `IBAT` sign depends on the battery: with this bike's custom pack, current drawn is **negative**
+  (`IBAT=-1` and -81 W while parked, rides adding up to negative energy). The app learns the sign while riding.
 
 ## 5. Still open
 * Units/meaning of `CBAT` and `TRT`. Official ERR table.

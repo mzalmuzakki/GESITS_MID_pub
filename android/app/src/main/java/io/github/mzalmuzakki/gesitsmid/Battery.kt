@@ -106,6 +106,39 @@ class BatteryTracker(private val minChargePct: Float = 10f) {
     }
 }
 
+/**
+ * Which sign of the battery current (IBAT) means "taken from the battery" on this bike. The original G1
+ * battery reports it positive, but some batteries (e.g. a custom pack's BMS) report it negative, which
+ * would turn every ride into "charging". Learned while riding: then the current is mostly drawn, with
+ * regen only now and then. Pure Kotlin, unit-tested.
+ */
+class CurrentSign {
+    var sign = 1; private set
+    var decided = false; private set
+    private var pos = 0
+    private var neg = 0
+
+    /** Feed raw readings about once a second; returns true when the sign was (re)decided as different. */
+    fun update(spd: Float?, rawIbat: Float?): Boolean {
+        if (spd == null || rawIbat == null || spd < 8f || kotlin.math.abs(rawIbat) < 2f) return false
+        if (rawIbat > 0f) pos++ else neg++
+        val n = pos + neg
+        if (n < 40) return false                       // about 40 s of riding with real current
+        val s = when { neg >= n * 0.75f -> -1; pos >= n * 0.75f -> 1; else -> sign }
+        pos = 0; neg = 0
+        decided = true
+        if (s == sign) return false
+        sign = s; return true
+    }
+
+    fun save(): String = "$sign;$decided"
+    fun load(s: String?) {
+        val p = s?.split(";") ?: return
+        sign = if (p.getOrNull(0) == "-1") -1 else 1
+        decided = p.getOrNull(1) == "true"
+    }
+}
+
 /** Usable capacity estimated from rides: energy used / battery % used x 100. Needs >= 20 % of data. */
 fun estimateCapacityKwh(rides: List<Ride>): Float? {
     val r = rides.filter { it.energyWh > 0 && it.socStart - it.socEnd >= 2f }

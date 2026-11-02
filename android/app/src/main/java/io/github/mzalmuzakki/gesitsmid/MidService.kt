@@ -27,6 +27,9 @@ object Bike {
     @Volatile var lastFrame: Bitmap? = null
     @Volatile var lastFrameInfo = ""
     @Volatile var running = false
+    /** Sign of the battery current on this bike (learned while riding). */
+    val currentSign = CurrentSign()
+
     /** When the MID last sent anything (watchdog: a link that went silent is reconnected). */
     @Volatile var lastRxAt = 0L
     /** One-off commands from the UI (text, picture...), sent by the service thread. */
@@ -98,6 +101,7 @@ class Settings(ctx: Context) {
     /** Show the app's adaptive range in the MID text line (when you have no text of your own). */
     /** How the Classic link last connected (insecure / secure / ch1): tried first next time. */
     var classicMethod: String? get() = p.getString("classicMethod", null); set(v) = p.edit().putString("classicMethod", v).apply()
+    var currentSign: String? get() = p.getString("ibatSign", null); set(v) = p.edit().putString("ibatSign", v).apply()
     var rangeLine: Boolean get() = p.getBoolean("rangeLine", true); set(v) = p.edit().putBoolean("rangeLine", v).apply()
     /** Also try to replace the MID's own range figure with AT+TRIP. On a G1 (MID 11-50-09-G1) it reverts instantly. */
     var rangeOverride: Boolean get() = p.getBoolean("rangeOverride", false); set(v) = p.edit().putBoolean("rangeOverride", v).apply()
@@ -412,6 +416,7 @@ class MidService : Service() {
         Bike.loadTrip(s)
         Bike.loadBattery(s)
         L.init(s.language)
+        Bike.currentSign.load(s.currentSign); Bike.telemetry.ibatSign = Bike.currentSign.sign
         // Battery size from rides recorded earlier, if the energy model has nothing yet.
         RideStore.all(this).filter { it.energyWh > 0f && it.socStart - it.socEnd >= 2f }.let { r ->
             if (r.isNotEmpty()) synchronized(Bike.range) {
@@ -498,6 +503,11 @@ class MidService : Service() {
                 }
                 // Once per second: charts, ride recording, parking, alarms, trip and range learning.
                 if (now - lastLearn >= 1000) {
+                    if (Bike.currentSign.update(tm.f("SPD"), tm.ibatRaw)) {
+                        tm.ibatSign = Bike.currentSign.sign
+                        Bike.log(if (tm.ibatSign < 0) "This battery reports current drawn as negative - corrected" else "Battery current sign: normal")
+                    }
+                    if (Bike.currentSign.decided && s.currentSign != Bike.currentSign.save()) s.currentSign = Bike.currentSign.save()
                     Bike.addSample(Sample(now, tm.f("SPD"), tm.powerW, tm.f("TRT"), tm.f("TBAT"), tm.f("TMOT"), tm.f("TINV")))
                     Bike.recorder.sample(now, tm.f("SPD"), tm.f("ODO"), tm.f("SOC"), tm.f("VBAT"), tm.f("IBAT"))
                         ?.let { rideFinished(it, s) }
