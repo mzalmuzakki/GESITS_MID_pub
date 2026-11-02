@@ -56,7 +56,8 @@ class BatteryNavTest {
     @Test fun speedWarning() {
         val w = SpeedWarning(70)
         assertFalse(w.update(75f, 0)); assertFalse(w.update(75f, 2000)); assertTrue(w.update(75f, 3000))
-        assertTrue(w.update(69f, 4000)); assertFalse(w.update(66f, 5000))
+        assertTrue(w.update(69f, 4000)); assertTrue(w.update(66f, 5000))   // stays at least 10 s
+        assertFalse(w.update(66f, 13_001))
         w.limit = 0; assertFalse(w.update(120f, 9000))
     }
 
@@ -75,7 +76,7 @@ class BatteryNavTest {
     @Test fun learnsReversedBatteryCurrent() {
         val c = CurrentSign()
         var changed = false
-        repeat(100) { i -> changed = changed or c.update(35f, if (i % 10 == 0) 8f else -25f) }  // two windows: drawn negative
+        repeat(50) { i -> changed = changed or c.update(35f, if (i % 10 == 0) 8f else -25f) }   // two windows: drawn negative
         assertTrue(changed); assertEquals(-1, c.sign)
         val c2 = CurrentSign(); c2.load(c.save()); assertEquals(-1, c2.sign); assertTrue(c2.decided)
         repeat(60) { assertFalse(CurrentSign().update(0f, -1f)) }      // parked: nothing learned
@@ -85,14 +86,14 @@ class BatteryNavTest {
 
     @Test fun aLongRegenDescentDoesNotFlipTheSign() {
         val c = CurrentSign()
-        repeat(40) { c.update(30f, 20f) }
+        repeat(20) { c.update(30f, 20f) }
         assertFalse(c.decided)                                   // one window is not enough
-        repeat(40) { c.update(30f, 20f) }                        // second agreeing window: normal battery
+        repeat(20) { c.update(30f, 20f) }                        // second agreeing window: normal battery
         assertTrue(c.decided); assertEquals(1, c.sign)
-        repeat(7 * 40) { assertFalse(c.update(40f, -15f)) }      // ~5 minutes of regen downhill
+        repeat(7 * 20) { assertFalse(c.update(40f, -15f)) }      // 7 windows (~12 min of readings) of regen downhill
         assertEquals(1, c.sign)
-        repeat(40) { c.update(30f, 20f) }                        // riding again: counter reset
-        repeat(7 * 40) { c.update(40f, -15f) }
+        repeat(20) { c.update(30f, 20f) }                        // riding again: counter reset
+        repeat(7 * 20) { c.update(40f, -15f) }
         assertEquals(1, c.sign)
     }
 }

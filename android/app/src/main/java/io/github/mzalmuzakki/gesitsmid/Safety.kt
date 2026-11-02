@@ -59,24 +59,28 @@ class Liveness {
         const val WRITE_WINDOW_MS = 3_000L
         const val SILENT_AFTER_MS = 8_000L          // ~13 unanswered questions while riding
         const val FIRST_ANSWER_MS = 20_000L         // after connecting
-        const val MOVING_RECENTLY_MS = 15_000L
-        const val STOPPED_HANG_MS = 30_000L         // stopped: Bluetooth drops well before this when switched off
+        const val MOVING_HANG_MS = 15_000L          // moving when it went silent, link still up: hung
+        const val STOPPED_HANG_MS = 30_000L         // stopped: Bluetooth should drop well before this when switched off
     }
 
     var connectedAt = 0L; private set
     var lastAnswerAt = 0L; private set
+    private var graceUntil = 0L
 
-    fun connected(now: Long) { connectedAt = now; lastAnswerAt = 0L }
+    fun connected(now: Long) { connectedAt = now; lastAnswerAt = 0L; graceUntil = 0L }
     fun answered(now: Long) { lastAnswerAt = now }
+
+    /** The app itself kept the link busy until [until] (a long picture write): that time isn't the MID's silence. */
+    fun busy(until: Long) { graceUntil = maxOf(graceUntil, until) }
 
     fun canWrite(now: Long): Boolean = lastAnswerAt > 0L && now - lastAnswerAt < WRITE_WINDOW_MS
 
     /** True when the MID has gone silent on this connection. */
     fun silent(now: Long): Boolean =
-        if (lastAnswerAt > 0L) now - lastAnswerAt > SILENT_AFTER_MS else now - connectedAt > FIRST_ANSWER_MS
+        now >= graceUntil && (if (lastAnswerAt > 0L) now - lastAnswerAt > SILENT_AFTER_MS else now - connectedAt > FIRST_ANSWER_MS)
 
     /** Milliseconds of silence on this connection (since the last answer, or since connecting). */
-    fun silenceMs(now: Long): Long = now - maxOf(lastAnswerAt, connectedAt)
+    fun silenceMs(now: Long): Long = now - maxOf(lastAnswerAt, connectedAt, graceUntil)
 
     enum class Verdict {
         /** The MID has probably hung: stay quiet (one question now and then) and warn. */
@@ -86,12 +90,20 @@ class Liveness {
     }
 
     /**
-     * What silence means. Moving in the last 15 s: the ignition can't have been switched off, so the MID hung.
-     * Stopped: switching the ignition off drops the Bluetooth link within seconds, so if the link is still up
-     * after 30 s of silence, the bike is on and the MID has hung (also on a bench test). Until then: wait.
+     * What silence means (the app has already gone quiet after 8 s). Switching the ignition off drops the
+     * Bluetooth link - but on some phones only after up to ~20 s. So: if the bike was moving when the answers
+     * stopped, it counts as a hang once the link has stayed up for 15 s of silence; if it was stopped, after
+     * 30 s (also on a bench test). Until then: wait.
      */
     fun verdict(now: Long, lastMovingAt: Long): Verdict =
-        if (lastMovingAt > 0L && now - lastMovingAt < MOVING_RECENTLY_MS) Verdict.HUNG
+        if (movingWhenItStopped(lastMovingAt) && silenceMs(now) >= MOVING_HANG_MS) Verdict.HUNG
         else if (silenceMs(now) >= STOPPED_HANG_MS) Verdict.HUNG
         else Verdict.WAIT
+
+    /**
+     * The bike was moving when the MID's answers stopped: a speed above 3 km/h was current (at most 2.5 s old)
+     * within 2.5 s of the last answer. Also used when the link drops: dropping while moving is not "switched off".
+     */
+    fun movingWhenItStopped(lastMovingAt: Long): Boolean =
+        lastMovingAt > 0L && lastAnswerAt > 0L && lastMovingAt >= lastAnswerAt - 2_500L
 }

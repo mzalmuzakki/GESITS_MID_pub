@@ -52,11 +52,16 @@ class SafetyTest {
 
     @Test fun silenceWhileMovingIsAHangStoppedWaitsForTheLinkToDrop() {
         val l = Liveness()
-        l.connected(0); l.answered(1_000)
-        assertEquals(Liveness.Verdict.HUNG, l.verdict(10_000, lastMovingAt = 2_000))    // was moving 8 s ago
-        assertEquals(Liveness.Verdict.WAIT, l.verdict(10_000, lastMovingAt = 0))        // stopped: maybe switched off
-        assertEquals(Liveness.Verdict.WAIT, l.verdict(30_000, lastMovingAt = 0))
-        assertEquals(Liveness.Verdict.HUNG, l.verdict(31_001, lastMovingAt = 0))        // link still up after 30 s: on
+        l.connected(0); l.answered(10_000)
+        // moving when the answers stopped: a hang once the link stayed up 15 s
+        assertEquals(Liveness.Verdict.WAIT, l.verdict(20_000, lastMovingAt = 11_000))
+        assertEquals(Liveness.Verdict.HUNG, l.verdict(25_001, lastMovingAt = 11_000))
+        assertTrue(l.movingWhenItStopped(lastMovingAt = 11_000))
+        // stopped 5 s before the answers stopped (pulled up, switched off): not moving
+        assertFalse(l.movingWhenItStopped(lastMovingAt = 5_000))
+        assertEquals(Liveness.Verdict.WAIT, l.verdict(30_000, lastMovingAt = 5_000))
+        assertEquals(Liveness.Verdict.HUNG, l.verdict(40_001, lastMovingAt = 5_000))   // link still up after 30 s: on
+        assertEquals(Liveness.Verdict.WAIT, l.verdict(39_000, lastMovingAt = 0))
     }
 
     @Test fun onlyKnownQuestions() {
@@ -64,4 +69,14 @@ class SafetyTest {
         assertFalse(Traffic.allowed("AT+RESET?\r\n")); assertFalse(Traffic.allowed("AT+MAPEND?\r\n"))
         assertNull(Traffic.console("AT+RESET?"))
     }
+
+    @Test fun theAppsOwnLongWriteIsNotTheMidsSilence() {
+        val l = Liveness()
+        l.connected(0); l.answered(1_000)
+        l.busy(12_000)                                   // a picture took until 10 s to write, +2 s grace
+        assertFalse(l.silent(11_000))
+        assertTrue(l.silent(12_001))
+        assertTrue(l.silenceMs(15_000) <= 3_000)
+    }
 }
+

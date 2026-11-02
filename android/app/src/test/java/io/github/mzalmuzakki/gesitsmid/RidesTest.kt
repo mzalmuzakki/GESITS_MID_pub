@@ -91,8 +91,18 @@ class RidesTest {
             fired += a.evaluate(80f, 30f, 40f, 100f, errs, nowMs = i * 10_000L).size
         }
         assertEquals(1, fired)
-        assertEquals(1, a.evaluate(80f, 30f, 40f, 100f, listOf("Under voltage"), nowMs = 11 * 60_000L).size +
-            a.evaluate(80f, 30f, 40f, 100f, emptyList(), nowMs = 11 * 60_000L + 1).size)
+        assertEquals(1, a.evaluate(80f, 30f, 40f, 100f, listOf("Under voltage"), nowMs = 11 * 60_000L).size)   // after 10 min: again
+    }
+
+    @Test fun aHeldBackAlarmFiresWhenTheTimeIsUpAndEachErrorCounts() {
+        val a = AlarmMonitor()
+        assertEquals(1, a.evaluate(80f, 30f, 90f, 100f, emptyList(), nowMs = 0).size)            // motor hot
+        a.evaluate(80f, 30f, 70f, 100f, emptyList(), nowMs = 60_000)                              // cooled
+        assertTrue(a.evaluate(80f, 30f, 90f, 100f, emptyList(), nowMs = 120_000).isEmpty())       // hot again: held back
+        assertEquals(1, a.evaluate(80f, 30f, 90f, 100f, emptyList(), nowMs = 600_001).size)       // still hot at 10 min: fires
+        assertEquals(1, a.evaluate(80f, 30f, 40f, 100f, listOf("Throttle fault"), nowMs = 700_000).size)
+        assertEquals(listOf("MID error: Under voltage"),
+            a.evaluate(80f, 30f, 40f, 100f, listOf("Throttle fault", "Under voltage"), nowMs = 710_000))   // a new error still counts
     }
 }
 

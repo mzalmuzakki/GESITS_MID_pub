@@ -93,7 +93,7 @@ it as decimal unless it starts with `0x`, which contradicts its own `0800` = bit
 |---|---|---|
 | `AT+TIME="HHmm"` | Set the MID clock (sent every second by A) | 🟡 |
 | `AT+NAV="<text>"` | Text line on the MID, **max 20 characters** | ✅ |
-| `AT+TRIP="12.3"` | The **range** (remaining km) figure on the MID, sent every 3 s | 🟡 |
+| `AT+TRIP="12.3"` | The **range** (remaining km) figure on the MID, sent every 3 s by B. On a G1 it is overwritten instantly; this project's app never sends it (since v0.17) | 🟡 |
 | `AT+MAPS="<base64 JPEG>"` | Picture in the map area | ✅ |
 | `AT+ODO="<km>"` | **Writes the odometer** (B uses it to "sync" upward) | 🟡 not in our tools |
 | `AT+END` | End of session (A sends it without CR LF) | 🟡 |
@@ -139,10 +139,9 @@ now use 320 × 128.
 * Roughly the top **164 px** of a 220 px picture show inside the frame. Below that, the MID's frame line,
   range circle and battery gauge are drawn over the picture. The app's dashboard keeps a 56 px bottom
   margin by default; the calibration grid (app → "Calibration grid") measures this exactly.
-* `AT+TRIP` changes the MID's "Range" figure, but the MID puts its own value back (when updates stop,
-  and apparently when it redraws after a picture), so the app re-sends it every 0.25 s and 0.4 s after
-  each picture. Seen on a G1: the display switches between the two values (MID 50, app 100), so the
-  MID keeps recalculating; the app now sends only a learned value. GESITS Dashboard sent it every 0.5 s in older versions, every 3 s now. Still being checked on a real bike.
+* `AT+TRIP` changes the MID's "Range" figure, but the MID puts its own value back. GESITS Dashboard sends it
+  every 0.5-3 s. On a G1 the MID overwrites it instantly (see below), so this project's app stopped sending it
+  (v0.17) and shows its range in the `AT+NAV` text line instead.
 
 ## 4. Other devices B connects to (not the MID)
 * **JK-BMS** (battery management system) over BLE: service `FFE0`, notify `FFE1`, write `FFF2`.

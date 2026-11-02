@@ -129,7 +129,7 @@ class CurrentSign {
         if (spd == null || rawIbat == null || spd < 8f || kotlin.math.abs(rawIbat) < 2f) return false
         if (rawIbat > 0f) pos++ else neg++
         val n = pos + neg
-        if (n < 40) return false                       // about 40 s of riding with real current
+        if (n < 20) return false                       // 20 current readings while riding (~2 min)
         val s = when { neg >= n * 0.75f -> -1; pos >= n * 0.75f -> 1; else -> 0 }
         pos = 0; neg = 0
         if (s == 0) { against = 0; return false }
@@ -165,15 +165,18 @@ fun estimateCapacityKwh(rides: List<Ride>): Float? {
 class SpeedWarning(var limit: Int = 0) {
     private var overSince = -1L
     var active = false; private set
+    private var activeSince = -1L
 
+    /** Once shown, the warning stays at least 10 s (riding around the limit doesn't make it flicker). */
     fun update(spd: Float?, nowMs: Long): Boolean {
-        if (limit <= 0 || spd == null) { active = false; overSince = -1L; return false }
+        if (limit <= 0) { active = false; overSince = -1L; return false }
+        if (spd == null) { if (active && nowMs - activeSince >= 10_000) active = false; overSince = -1L; return active }
         if (spd > limit) {
             if (overSince < 0L) overSince = nowMs
-            if (nowMs - overSince >= 3000) active = true
+            if (!active && nowMs - overSince >= 3000) { active = true; activeSince = nowMs }
         } else {
             overSince = -1L
-            if (spd <= limit - 3) active = false
+            if (active && spd <= limit - 3 && nowMs - activeSince >= 10_000) active = false
         }
         return active
     }

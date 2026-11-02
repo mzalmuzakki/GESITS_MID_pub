@@ -121,5 +121,13 @@ class ProtocolTest {
         for (x in listOf("0145", "0095", "0125")) assertFalse(t.offer("TMOT", x))
         assertEquals(40f, t.f("TMOT"))
     }
+
+    @Test fun aLostMinusOnTheCurrentIsNotAccepted() {
+        val t = Telemetry()
+        t.offer("IBAT", "-12"); t.offer("IBAT", "-12")
+        assertFalse(t.offer("IBAT", "12"))              // the "-" got lost
+        assertEquals(-12f, t.f("IBAT"))
+        assertTrue(t.offer("IBAT", "-10"))
+    }
 }
 

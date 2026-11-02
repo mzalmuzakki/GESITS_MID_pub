@@ -22,6 +22,8 @@ interface MidLink {
     fun write(data: ByteArray)       // blocking; throws IOException on failure
     fun close()
     val isOpen: Boolean
+    /** True if the link was closed because a write got stuck (the MID stopped taking data). */
+    val stalled: Boolean get() = false
 }
 
 /** Bluetooth Classic SPP (RFCOMM). The main path used by both known Gesits apps. */
@@ -41,6 +43,7 @@ class ClassicLink(
     @Volatile private var closedReported = false
     @Volatile private var closing = false
     @Volatile private var writeStartedAt = 0L                    // a write stuck longer than 5 s closes the link
+    @Volatile override var stalled = false; private set
 
     // isConnected stays true after the other side vanishes; the receive thread ending is the real signal.
     override val isOpen get() = socket?.isConnected == true && !closedReported
@@ -90,7 +93,7 @@ class ClassicLink(
             while (socket === conn && !closedReported) {
                 try { Thread.sleep(1000) } catch (_: InterruptedException) { break }
                 val w = writeStartedAt
-                if (w > 0L && System.currentTimeMillis() - w > 5000) { try { conn.close() } catch (_: IOException) {}; reportClosed(); break }
+                if (w > 0L && System.currentTimeMillis() - w > 5000) { stalled = true; try { conn.close() } catch (_: IOException) {}; reportClosed(); break }
             }
         }, "mid-classic-watchdog").apply { isDaemon = true }.start()
         Thread({
@@ -157,6 +160,7 @@ class BleLink(
     private val readyLatch = CountDownLatch(1)
     private val writeDone = Semaphore(0)
     @Volatile private var lastWriteOk = true
+    @Volatile override var stalled = false; private set
 
     override val isOpen get() = ready && gatt != null
 
@@ -231,7 +235,7 @@ class BleLink(
             g.writeCharacteristic(c)
         }
         if (!started) throw IOException("BLE write could not start")
-        if (!writeDone.tryAcquire(3, TimeUnit.SECONDS)) throw IOException("BLE write timeout")
+        if (!writeDone.tryAcquire(3, TimeUnit.SECONDS)) { stalled = true; throw IOException("BLE write timeout") }
         if (!ready) throw IOException("BLE disconnected")
         if (!lastWriteOk) throw IOException("BLE write rejected")
     }

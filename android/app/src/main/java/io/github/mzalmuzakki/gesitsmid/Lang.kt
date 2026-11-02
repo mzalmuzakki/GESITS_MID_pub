@@ -67,6 +67,11 @@ object L {
         "Save text" to "Simpan teks", "Text cleared" to "Teks dihapus",
         "Pair the bike again: phone Bluetooth settings → Gesits." to "Pasangkan ulang motor: pengaturan Bluetooth HP → Gesits.",
         "SLOW DOWN" to "PELAN",
+        "The MID's values look frozen (speed shown but the odometer doesn't move). When it is safe, stop and switch the bike off and on." to
+            "Nilai MID tampak macet (kecepatan tampil tapi odometer tidak bergerak). Jika aman, berhenti lalu matikan dan nyalakan motor.",
+        "Could not stop the connection - nothing was deleted. Try again." to "Koneksi tidak bisa dihentikan - tidak ada yang dihapus. Coba lagi.",
+        "Wait for the last question to be sent" to "Tunggu pertanyaan sebelumnya terkirim",
+        "Link open - waiting for the MID to answer" to "Tautan terbuka - menunggu jawaban MID",
         "On connect and when the minute changes" to "Saat terhubung dan saat menit berganti",
         "No picture chosen" to "Belum ada gambar dipilih",
         "The MID stopped answering. When it is safe, stop and switch the bike off and on. Until it answers again the app only asks one question every 15 s." to

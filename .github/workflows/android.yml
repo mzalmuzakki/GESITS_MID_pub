@@ -41,12 +41,6 @@ jobs:
         with:
           gradle-version: "8.9"
 
-      # Keep the same debug signing key between builds so new APKs install over old ones.
-      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
-        with:
-          path: ~/.android/debug.keystore
-          key: android-debug-keystore-v1
-
       # Unit tests first, before the signing key is anywhere on the runner.
       - name: Unit tests
         run: gradle -p android testReleaseUnitTest --no-daemon
@@ -88,6 +82,18 @@ jobs:
           echo "signed=$SIGNED_WITH" >> "$GITHUB_OUTPUT"
           ls -la "$APK"
 
+      # Riders only ever get APKs signed with the CAKRA Labs key: check the certificate itself, not a label.
+      # (This is the certificate's public fingerprint, not a secret.)
+      - name: Check the signing certificate
+        env:
+          APK: ${{ steps.apk.outputs.file }}
+          PINNED: 0a49eff926e3a58ec1d772d5bdd79a673e7dcde37fb6a5df73098616f27b23c0
+        run: |
+          SIGNER=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)/apksigner
+          CERT=$("$SIGNER" verify --print-certs "$APK" | grep -m1 'certificate SHA-256 digest' | awk '{print $NF}')
+          echo "APK certificate: $CERT"
+          test "$CERT" = "$PINNED" || { echo "::error::Not signed with the CAKRA Labs key - stopping"; exit 1; }
+
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: ${{ steps.apk.outputs.file }}
@@ -103,6 +109,8 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false   # no write token on disk while third-party steps run
 
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
@@ -131,10 +139,13 @@ jobs:
           SIGNED: ${{ needs.build.outputs.signed }}
           APK: ${{ needs.build.outputs.apk }}
         run: |
-          # Riders get only APKs signed with the permanent key (a test-key APK would need an uninstall).
+          # Riders get only APKs signed with the permanent key (checked by certificate in the build job, and here).
           case "$SIGNED" in TEST*) echo "::error::Not signed with the permanent key - not publishing"; exit 1;; esac
+          # Only the newest main: a re-run of an older run must not replace a newer release.
+          HEAD=$(git ls-remote "https://github.com/${{ github.repository }}" refs/heads/main | cut -f1)
+          test "$HEAD" = "${{ github.sha }}" || { echo "::error::main has moved on ($HEAD) - not publishing an older build"; exit 1; }
           TITLE="Gesits MID ${{ needs.build.outputs.version }} (build ${{ github.run_number }})"
-          NOTES="Built by GitHub Actions from commit ${{ github.sha }}. Unit tests passed; every screen was opened in an Android 14 emulator with demo data without a crash or freeze. NOT tested by this build: the Bluetooth connection and the bike. Test on the bike while parked first; if the MID ever freezes, stop safely and switch the bike off and on.
+          NOTES="Built by GitHub Actions from commit ${{ github.sha }}. Unit tests passed; the test script opened every screen in an Android 14 emulator with demo data without a crash or freeze (see the screenshots release). NOT tested by this build: the Bluetooth connection and the bike. Test on the bike while parked first; if the MID ever freezes, stop safely and switch the bike off and on.
           SHA-256: ${{ needs.build.outputs.sha }}
           Signed with: ${{ needs.build.outputs.signed }}
           Permissions: Bluetooth, foreground service; notifications (optional); location only for 'Remember where I parked' (and, on Android 8-11, to scan for a Bluetooth LE bike); notification access only for directions. No internet."
@@ -142,7 +153,7 @@ jobs:
             # Update in place, so there is never a moment without a downloadable release:
             # upload the new APK first, then move the tag, update the text, and remove older APKs.
             gh release upload android-latest "apk/$APK" --clobber
-            git tag -f android-latest "${{ github.sha }}" && git push -f origin refs/tags/android-latest
+            gh api -X PATCH "repos/${{ github.repository }}/git/refs/tags/android-latest" -f sha="${{ github.sha }}" -F force=true >/dev/null
             gh release edit android-latest --title "$TITLE" --notes "$NOTES" --prerelease --draft=false
             for a in $(gh release view android-latest --json assets --jq '.assets[].name'); do
               [ "$a" = "$APK" ] || gh release delete-asset android-latest "$a" --yes

@@ -125,6 +125,9 @@ object Demo {
 
     private var tripBefore: String? = null
 
+    /** "Delete all my data": the trip kept aside for after the demo is data too. */
+    fun forget() { tripBefore = null }
+
     fun load() {
         if (!active) tripBefore = synchronized(Bike.trip) { Bike.trip.save() }
         active = true

@@ -53,13 +53,14 @@ python -m gesits monitor serial://COM5                     # Windows Bluetooth C
 python -m gesits monitor serial:///dev/rfcomm0             # after `sudo rfcomm bind 0 <MAC> 1`
 python -m gesits monitor ble://GESITS                      # Bluetooth LE (pip install bleak)
 
-# 3. Write to the MID
+# 3. Write to the MID (parked only; on a G1 heavy traffic froze the MID - see android/README.md, Safety)
 python -m gesits time  bt://AA:BB:CC:DD:EE:FF                     # set the MID clock
 python -m gesits text  bt://AA:BB:CC:DD:EE:FF "Halo Gesits"        # 20-char text line
-python -m gesits range bt://AA:BB:CC:DD:EE:FF 57.5                 # range figure (km)
+python -m gesits range bt://AA:BB:CC:DD:EE:FF 57.5                 # range figure (AT+TRIP; a G1 overwrites it at once)
 python -m gesits image bt://AA:BB:CC:DD:EE:FF logo.png --preview sent.jpg   # picture
 
-# 4. Custom MID screen (live data drawn as a picture every 3 s)
+# 4. Custom MID screen (live data drawn as a picture every 3 s) - HEAVY traffic: this is the kind of load
+#    that froze a G1's MID. Parked bench use only, watch the MID, stop at the first freeze.
 python -m gesits screen --preview screen.png                     # offline preview, sample data
 python -m gesits screen ble://GESITS                              # over Bluetooth LE (pip install bleak)
 python -m gesits screen bt://AA:BB:CC:DD:EE:FF                    # over Bluetooth Classic

@@ -227,7 +227,7 @@ class MainActivity : Activity() {
         settings.address = d.address
         settings.deviceName = name ?: d.name ?: d.address
         settings.linkType = type
-        Bike.telemetry.resetAll(); Bike.midHungSince = 0L; Bike.hangWarned = false   // a new bike: expect nothing
+        Bike.pendingReset = true                       // a new bike: the next connection starts the answer checks afresh
         pages.remove("home"); show("home")
         if (Bike.running) { MidService.stop(this); ui.postDelayed({ MidService.start(this, tap = true) }, 800) } else MidService.start(this, tap = true)
     }
@@ -303,7 +303,7 @@ class MainActivity : Activity() {
     private fun refreshHome() {
         if (!::connTitle.isInitialized) return
         val name = settings.deviceName?.let { "$it · ${if (settings.linkType == "ble") "Bluetooth LE" else "Bluetooth Classic"}" } ?: L.t("No bike chosen yet")
-        val hung = Bike.status.startsWith("The MID stopped answering")
+        val hung = Bike.midHungSince > 0L
         connTitle.text = when {
             hung -> "⚠ " + L.t("MID not answering")
             Bike.connected -> "● " + L.t("Connected")
@@ -580,12 +580,16 @@ class MainActivity : Activity() {
                     // place again after the delete.
                     MidService.stop(this)
                     Thread {
-                        val end = System.currentTimeMillis() + 30_000
+                        val end = System.currentTimeMillis() + 60_000
                         while (Bike.workerAlive && System.currentTimeMillis() < end) Thread.sleep(100)
+                        if (Bike.workerAlive) {   // never delete while the service could still write afterwards
+                            runOnUiThread { toast("Could not stop the connection - nothing was deleted. Try again.") }
+                            return@Thread
+                        }
                         runOnUiThread {
-                            Parking.deleteEpoch++
-                            Bike.recorder.reset(); Bike.alarms.reset()
-                            Bike.telemetry.resetAll(); Bike.midHungSince = 0L; Bike.hangWarned = false
+                            Parking.deleteEpoch++; Demo.forget()
+                            Bike.recorder.reset(); Bike.alarms.reset(); Bike.outbox.clear()
+                            Bike.telemetry.resetAll()   // (a remembered MID hang is safety state, not your data: it stays)
                             RideStore.clear(this)
                             getSharedPreferences("settings", MODE_PRIVATE).edit().clear().apply()
                             deleteFile("picture.b64")
@@ -611,6 +615,7 @@ class MainActivity : Activity() {
             when {
                 !Bike.connected -> toast("Connect to the bike first")
                 q == null -> toast("Only questions like AT+SPD? can be sent")
+                Bike.outbox.size >= 2 -> toast("Wait for the last question to be sent")
                 else -> Bike.outbox.add(q)
             }
         }

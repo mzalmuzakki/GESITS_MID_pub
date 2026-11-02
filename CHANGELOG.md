@@ -5,6 +5,45 @@ Versions are **v\<major\>.\<xx\>.\<yy\>** (see `android/version.properties`):
 * **xx**: feature milestone (new or changed things you notice); resets yy
 * **yy**: fixes and polish only
 
+## v0.19.00 - safety, third review
+The second recheck (two QA reviews and an audit of v0.18.00) found more gaps. All fixed:
+* **Writes held back are never counted as sent:** `send()` reports whether a command went out, and "MID
+  answering" is checked again right before each write, after the pacing waits. The text line, clock and
+  picture are only marked done when they really went out (a dropped text is sent again, instead of leaving
+  the MID blank or showing an old "! SLOW DOWN").
+* **More hangs are caught:** a write that gets stuck, a link that drops while riding, and a MID that never
+  answers on a fresh connection for 30 s (e.g. it froze before the app connected) now count as hangs, with
+  a warning. The hang is also kept across app restarts (only a real answer ends it; Change bike and Delete
+  all data no longer clear it). The app's own long picture writes (Bluetooth LE) no longer count as silence.
+* **Fewer false alarms:** a hang while moving is declared only if the bike was moving when the answers
+  stopped *and* the link is still up 15 s later (switching off right after pulling up drops the link first).
+* **"Questions only" after a self-recovery** now lasts until the link has been down for 10 s or more (the
+  bike switched off and on) - not just any reconnect - and polls at the parked rate meanwhile.
+* **Frozen but answering:** speed of 15 km/h or more for 90 s with the odometer not moving gives a warning
+  and stops writes.
+* **Lighter and steadier:** a text change never forces a picture; own long text rotates every 15 s; the speed
+  warning stays at least 10 s; the console sends one question per pass, at most 2 queued, cleared on a hang
+  or a new link.
+* **Alarms:** one per error code (a new error is reported while another is active); an alarm held back by
+  the 10-minute rule fires as soon as the 10 minutes are up if the condition is still there.
+* **Answer checks:** a lost "-" on the battery current needs confirming; the current's jump limit is 80 A;
+  values expire by the current (riding/parked) schedule and the firmware version no longer expires; the
+  current sign learns from each new reading once (20 readings per window); charging is only detected once
+  the current sign is known (a custom pack's -1 A idle current no longer looks like charging).
+* **Reliability:** Home shows a hang from the hang state itself (not the status text); start-up errors and
+  unexpected errors in the worker can't leave the app "running" without a worker; the connect being aborted
+  by Disconnect is registered before anything else; "Delete all my data" never deletes while the service could
+  still write (it waits up to 60 s, otherwise nothing is deleted) and also forgets a trip kept aside by the demo.
+* **Pipeline:** the APK's signing certificate is checked against the CAKRA Labs key's fingerprint before
+  anything is published; only the newest `main` commit can publish (re-running an old run can't roll back the
+  release); the release tag is moved through the API, with no write token left on disk during the emulator
+  run; the cached debug key is gone; manual runs of the private-repo sync only from `main`.
+* Docs corrected (NO DATA after 5 s, `AT+TRIP` no longer sent, toolkit's heavy commands marked bench-only).
+* 58 unit tests.
+
+**Still true:** not yet tested on the bike for long periods. Bench test first (P, then D on the centre stand),
+and measure how long after switching off the app logs "Connection lost" - the hang rules assume under 15-30 s.
+
 ## v0.18.00 - safety, second review
 A second round of two independent QA reviews and an audit (of v0.17.00) found gaps in v0.17's fixes. All fixed:
 * **Hang handling that holds:** a hang is remembered across link drops, reconnects and Disconnect/Connect

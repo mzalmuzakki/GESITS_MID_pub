@@ -35,10 +35,10 @@ One screen with four tabs at the bottom:
   The Range card also shows energy figures (battery kWh, Wh/km). The range is shown as "RANGE 112 km"
   in the MID's text line, because the MID's own range figure is its own calculation for the original
   battery and can't be replaced over Bluetooth on a G1. The MID draws the text line without erasing, so
-  a new text goes out after a blank one (or on top of the next picture, if pictures are on).
+  a new text goes out after a blank one (and is drawn again after each picture, if pictures are on).
   **Forget learned range** starts over.
 * **Clock sync:** sets the MID clock from your phone on connect and whenever the minute changes.
-* Optionally shows your own text line (rotating every 5 s, 20 characters per step).
+* Optionally shows your own text line (rotating every 15 s, 20 characters per step).
 * **Stats:** rides are recorded automatically (start when moving, end after 5 min stopped). Shows
   totals, a weekly target, 8-week and 7-day charts, records, average Wh/km, regen recovered,
   **savings vs a petrol motorcycle** (Rp after electricity cost, litres, CO₂; prices adjustable),
@@ -58,13 +58,13 @@ One screen with four tabs at the bottom:
   *notification access* (MID tab → Directions). The app reads only Google Maps' notifications, keeps
   only the latest instruction in memory, and has no internet permission to send it anywhere.
 * **Speed warning:** pick 50/60/70/80 km/h; after 3 s over it the MID text line shows "! SLOW DOWN 70"
-  (with pictures on, it appears with the next picture, up to 10 s later).
+  for at least 10 s.
 * **Sent to the MID:** when the picture, clock and text were last sent. A G1's MID doesn't
   confirm writes, so the app can't tell whether it took them: check the MID itself.
 * **Home-screen widget:** battery % and range, updated about once a minute while connected.
 * **Bahasa Indonesia** throughout (follows the phone, or pick it in Tools).
 * **Speedometer:** full-screen landscape dashboard on the phone (speed, battery, range, power or regen,
-  trip, temperatures). If the speed is more than 3 s old it shows **NO DATA** instead of a frozen number.
+  trip, temperatures). If the speed is more than 5 s old it shows **NO DATA** instead of a frozen number.
   Don't rely on the phone for your speed.
 * **Maps hand-off:** "Navigate" and "SPKLU near me" open Google Maps, so this app itself stays offline.
   Optional **"Remember where I parked"** saves the phone's GPS position when you park or switch off.
@@ -77,18 +77,26 @@ questions): speed and turn signals stuck until the ignition was switched off and
 * **Gentle polling:** about 1.6 questions a second while riding and 0.9 parked, with a hard limit of 2
   commands a second in total (questions and writes together), whatever screen is open. The clock is set
   when the minute changes and the text line only when it changes; nothing is re-sent "just in case".
+  Your own long text rotates every 15 s; the speed warning, once shown, stays at least 10 s.
 * **Only known commands**: questions about the values the MID was seen to answer, the clock, the text line
   and (if on) pictures. Never the odometer, the MID's range or any other write; the console can only ask
-  those same questions.
-* **Writes only while the MID answers** (checked right before each one). On a new connection only one
-  question every 3 s goes out until the MID answers.
-* **If the MID stops answering for 8 s:** the app stops asking (one question every 3 s). If you were moving
-  in the last 15 s, or the Bluetooth link is still up after 30 s, it counts as a hang: you get a warning
-  (each time it happens) and the app asks only one question every 15 s - also across reconnects and
-  Disconnect/Connect - until the MID answers again. If the link drops while you're stopped, the bike was
-  most likely switched off: no warning, reconnect attempts with a growing pause (2 s ... 60 s).
-* **After the MID answers again:** on a new connection (bike switched off and on) everything resumes; if it
-  came back by itself on the same connection, the app sticks to questions until the bike is restarted.
+  those same questions, one at a time.
+* **Writes only while the MID answers**, checked again right before each write; a write that was held
+  back is tried again later, never counted as done. On a new connection only one question every 3 s goes
+  out until the MID answers.
+* **If the MID stops answering for 8 s:** the app stops asking (one question every 3 s). It counts as a
+  hang - with a warning each time - if you were moving when the answers stopped and the link is still up
+  after 15 s, if the link is still up after 30 s, if a write gets stuck, or if the link drops while you
+  ride. Also when the MID never answers on a new connection for 30 s (e.g. it froze before the app
+  connected). While hung, the app asks one question every 15 s - also across reconnects, Disconnect/Connect
+  and app restarts - until the MID answers again. If the link drops while you're stopped, the bike was most
+  likely switched off: no warning, reconnect attempts with a growing pause (2 s ... 60 s).
+* **After the MID answers again:** on a new connection after the link was down 10 s or more (bike switched
+  off and on) everything resumes; if it came back by itself, the app sticks to questions (at the parked
+  rate) until then.
+* **Frozen but answering:** if the speed shows 15 km/h or more for 90 s while the odometer doesn't move, the
+  app warns you and stops writing. A MID that keeps answering while its display is frozen can't otherwise be
+  told apart - always watch the MID itself.
 * Live values that stop coming in are cleared (all of them after 8 s of silence, single ones once they are
   well overdue); the phone speed shows NO DATA when it's more than 5 s old - never a frozen number.
 
@@ -110,7 +118,8 @@ switch the bike off and on.**
 * Values are asked at different rates: speed every 2 s, current, odometer and gear every 5 s, voltage,
   battery % and errors every 10 s, temperatures every 30 s, battery health every 2 minutes; three times
   slower while parked (except speed); never more than 2 commands a second in total.
-* Pictures (if on) are sent when what they show changes (and once a minute), at most every 10 s.
+* Pictures (if on) are sent when what they show changes (and once a minute), at most every 10 s; a text
+  change never forces one.
 * The wake lock is held **only while the MID is answering**. With the bike off, reconnect attempts
   back off from 2 s to 60 s, and the app **stops itself after 60 minutes** without an answer.
 * State is saved every 60 s rather than constantly. There are no libraries, and R8 shrinks the APK.

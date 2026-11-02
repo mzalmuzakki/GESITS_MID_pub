@@ -83,7 +83,7 @@ object Replies {
         "ODO" to Rule(DEC, 0f, 9_999_999f, 1f),
         "TINV" to Rule(INT, -40f, 150f, 10f), "TMOT" to Rule(INT, -40f, 150f, 10f), "TBAT" to Rule(INT, -40f, 100f, 10f),
         "VBAT" to Rule(DEC, 20f, 150f, 8f),
-        "IBAT" to Rule(DEC, -300f, 400f, 150f),
+        "IBAT" to Rule(DEC, -300f, 400f, 80f),
         "TRT" to Rule(INT, 0f, 1000f, Float.MAX_VALUE),
         "MODE" to Rule(Regex("[0-9]"), 0f, 9f, 0f),
         "PARK" to Rule(Regex("[01]"), 0f, 1f, 0f),
@@ -150,7 +150,9 @@ class Telemetry {
 
     /** Drop single values that stopped coming in (older than [maxAgeMs] for that key). */
     fun expire(now: Long, maxAgeMs: (String) -> Long) {
-        for (k in times.keys.toList()) if (now - (times[k] ?: now) > maxAgeMs(k)) { raw.remove(k); times.remove(k) }
+        for (k in times.keys.toList()) if (now - (times[k] ?: now) > maxAgeMs(k)) {
+            raw.remove(k); times.remove(k); if (k == "IBAT") ibatRaw = null
+        }
     }
 
     /** Forget everything, including what answers are expected to look like (new bike, data deleted). */
@@ -162,6 +164,8 @@ class Telemetry {
         if (key == "ERR" || limit == 0f) return a == b
         val x = a.toFloatOrNull() ?: return a == b
         val y = b.toFloatOrNull() ?: return false
+        // current: a lost "-" (-12 -> 12) is a flip, not a small change
+        if (key == "IBAT" && x * y < 0f && kotlin.math.abs(x) > 3f && kotlin.math.abs(y) > 3f) return false
         return kotlin.math.abs(x - y) <= limit
     }
 

@@ -173,10 +173,13 @@ class AlarmMonitor(
     private val lastFired = HashMap<String, Long>()
     private var now = 0L
 
-    /** The same alarm comes back at most once every 10 minutes (an error that comes and goes doesn't spam). */
+    /**
+     * The same alarm comes back at most once every 10 minutes (an error that comes and goes doesn't spam). One
+     * that is held back is not lost: while the condition lasts, it fires as soon as the 10 minutes are up.
+     */
     private fun check(key: String, firing: Boolean, cleared: Boolean, msg: () -> String, out: MutableList<String>) {
-        if (firing && active.add(key)) {
-            if (now - (lastFired[key] ?: -REPEAT_MS) >= REPEAT_MS) { out += msg(); lastFired[key] = now }
+        if (firing && key !in active) {
+            if (now - (lastFired[key] ?: -REPEAT_MS) >= REPEAT_MS) { out += msg(); lastFired[key] = now; active.add(key) }
         } else if (cleared) active.remove(key)
     }
 
@@ -191,7 +194,9 @@ class AlarmMonitor(
         tbat?.let { check("tbat", it > tbatHigh, it <= tbatHigh - 3, { "Battery hot: ${it.toInt()}°C" }, out) }
         tmot?.let { check("tmot", it > tmotHigh, it <= tmotHigh - 5, { "Motor hot: ${it.toInt()}°C" }, out) }
         soh?.let { check("soh", it < sohLow, it >= sohLow + 2, { "Battery health low: ${it.toInt()}%" }, out) }
-        check("err", errors.isNotEmpty(), errors.isEmpty(), { "MID error: " + errors.joinToString() }, out)
+        // One alarm per error: a new error is reported even while another one is active.
+        for (e in errors) check("err:$e", true, false, { "MID error: $e" }, out)
+        active.filter { it.startsWith("err:") && it.removePrefix("err:") !in errors }.forEach { active.remove(it) }
         return out
     }
 }
