@@ -25,7 +25,7 @@ class ProtocolTest {
         val p = LineParser()
         val bytes = "AT+SOC=100\r\nAT+ODO=003791.6\r\nAT+VDO=003791.6\r\nAT+SD=012\r\n7\r\nAT+TINV003796.0\r\nAT+IBAT=   1\r\nAT+ERR=0000\r\n"
         p.feed(bytes.toByteArray()) { k, v -> t.offer(k, v) }
-        assertEquals("100", t.raw["SOC"]); assertEquals("003791.6", t.raw["ODO"]); assertEquals("1", t.raw["IBAT"])
+        assertEquals("100", t.raw["SOC"]); assertEquals("3791.6", t.raw["ODO"]); assertEquals("1", t.raw["IBAT"])
         assertNull(t.raw["VDO"]); assertNull(t.raw["SD"]); assertNull(t.raw["TINV"])
         assertTrue(t.errors.isEmpty())
     }
@@ -40,6 +40,14 @@ class ProtocolTest {
         assertFalse(t.offer("ERR", "0080")); assertTrue(t.errors.isEmpty())   // one "Under voltage": ignored
         assertTrue(t.offer("ERR", "0080")); assertEquals(listOf("Under voltage"), t.errors)   // twice: real
         assertFalse(t.offer("SOC", "abc")); assertFalse(t.offer("SPD", "1234")); assertFalse(t.offer("PARK", "7"))
+    }
+
+    @Test fun zeroPaddingIsRemoved() {
+        val t = Telemetry()
+        t.offer("SOC", "080"); t.offer("SPD", "000"); t.offer("TBAT", "0039"); t.offer("ODO", "003791.6"); t.offer("VBAT", "081")
+        assertEquals("80", t.raw["SOC"]); assertEquals("0", t.raw["SPD"]); assertEquals("39", t.raw["TBAT"])
+        assertEquals("3791.6", t.raw["ODO"]); assertEquals("81", t.raw["VBAT"])
+        t.ibatSign = -1; t.offer("IBAT", "  -25"); assertEquals("25", t.raw["IBAT"])
     }
 }
 

@@ -5,6 +5,12 @@ Versions are **v\<major\>.\<xx\>.\<yy\>** (see `android/version.properties`):
 * **xx**: feature milestone (new or changed things you notice); resets yy
 * **yy**: fixes and polish only
 
+## v0.15.01
+* The km-per-1% range starts from what the app already learned about the bike (battery size and
+  consumption) instead of the original battery's 0.5, so updating doesn't drop the range back to ~50 km.
+  Seen on a G1 with a custom battery: 28.5 km at 16 Wh/km, 1.50 km per 1%, 111 km at 80%.
+* Numbers without the MID's zero padding: 80% instead of 080%, 39 °C instead of 0039.
+
 ## v0.15.00
 * **Range = battery % × km per 1% from your own riding** (odometer and battery % only), as before v0.13,
   but settling after ~10% of battery instead of 20% (last 40% of riding counts). The energy figures

@@ -113,11 +113,17 @@ object Replies {
         val r = rules[key] ?: return v.takeIf { it.isNotEmpty() && key in OTHER_KEYS }
         if (!r.re.matches(v)) return null
         val f = v.toFloatOrNull() ?: return null
-        return v.takeIf { f in r.min..r.max }
+        if (f !in r.min..r.max) return null
+        return if (key == "CBAT") v else num(f, v)   // "080" -> "80", "003791.6" -> "3791.6"
     }
 
     /** Other answers worth keeping as they are (the console log shows every line anyway). */
     private val OTHER_KEYS = setOf("VER", "NUMBAT", "FWD") + Mid.CYCLE_KEYS
+
+    /** A number without the MID's zero padding. */
+    fun num(f: Float, original: String = ""): String =
+        if (f == Math.round(f).toFloat() && !original.contains('.')) Math.round(f).toString()
+        else java.math.BigDecimal(original.ifEmpty { f.toString() }).toPlainString()
 
     /** How big a change must be before it needs a second, matching reply (0 = any change). */
     fun confirmJump(key: String): Float = if (key == "ERR") 0f else rules[key]?.confirmJump ?: Float.MAX_VALUE
@@ -151,7 +157,7 @@ class Telemetry {
         pending.remove(key)
         if (key == "IBAT") {
             val a = v.toFloat(); ibatRaw = a
-            put(key, if (ibatSign < 0) (-a).toString() else v)
+            put(key, if (ibatSign < 0) Replies.num(-a, if (v.startsWith("-")) v.substring(1) else "-$v") else v)
         } else put(key, v)
         return true
     }

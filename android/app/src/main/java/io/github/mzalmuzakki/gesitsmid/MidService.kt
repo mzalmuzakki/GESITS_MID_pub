@@ -44,8 +44,16 @@ object Bike {
 
     fun loadRange(s: Settings) = synchronized(range) {
         if (!rangeLoaded) { range.load(s.rangeState); energy.load(s.energyState); rangeLoaded = true }
-        range.priorKmPerPercent = s.kmPerPercent
+        range.priorKmPerPercent = priorKmPerPercent(s)
     }
+    /**
+     * Starting value for km per 1 % until enough is ridden: what the energy model has already learned about
+     * this bike (battery size / consumption) if it has, else the original G1 battery's 0.5. Keeps the range
+     * steady when switching to the km-per-% method instead of dropping back to ~50 km.
+     */
+    fun priorKmPerPercent(s: Settings): Float =
+        if (energy.capacityLearned && energy.consumptionLearned) energy.rangeKm(1f).coerceIn(0.1f, 5f) else s.kmPerPercent
+
     /**
      * Range now = battery % x km per 1 % measured from your own recent riding (odometer and battery % only,
      * so it doesn't depend on the battery's current reading). The energy model is only used while nothing
@@ -552,7 +560,7 @@ class MidService : Service() {
                     val odo = tm.f("ODO"); val soc = tm.f("SOC")
                     if (odo != null && soc != null) {
                         val learned = synchronized(Bike.range) {
-                            Bike.range.priorKmPerPercent = s.kmPerPercent
+                            Bike.range.priorKmPerPercent = Bike.priorKmPerPercent(s)
                             Bike.range.update(odo, soc, now)
                         }
                         if (learned) Bike.log("Range learned: " + synchronized(Bike.range) { Bike.range.describe() })
