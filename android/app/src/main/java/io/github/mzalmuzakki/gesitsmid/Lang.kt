@@ -50,6 +50,7 @@ object L {
         "TEXT LINE (20 CHARACTERS PER STEP)" to "BARIS TEKS (20 KARAKTER PER LANGKAH)",
         "e.g. Halo Gesits! Hati-hati di jalan" to "mis. Halo Gesits! Hati-hati di jalan",
         "Save text" to "Simpan teks", "Text cleared" to "Teks dihapus",
+        "Pair the bike again: phone Bluetooth settings → Gesits." to "Pasangkan ulang motor: pengaturan Bluetooth HP → Gesits.",
         "Adaptive range in the MID text line" to "Jarak tempuh adaptif di baris teks MID",
         "Learns your battery size and how much you use, by itself. Shown when you have no text of your own." to
             "Mempelajari ukuran baterai dan pemakaian Anda secara otomatis. Tampil saat Anda tidak mengisi teks sendiri.",

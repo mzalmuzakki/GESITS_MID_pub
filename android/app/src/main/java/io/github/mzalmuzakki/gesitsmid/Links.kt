@@ -30,6 +30,8 @@ class ClassicLink(
     private val device: BluetoothDevice,
     private val onData: (ByteArray) -> Unit,
     private val onClosed: () -> Unit,
+    /** May Android show a pairing request? Only when you started the connection, never on background retries. */
+    private val allowPairing: Boolean = true,
 ) : MidLink {
     override val name = "Classic"
     @Volatile private var socket: BluetoothSocket? = null
@@ -39,15 +41,26 @@ class ClassicLink(
     override val isOpen get() = socket?.isConnected == true && !closedReported
 
     override fun open() {
+        // 1. Without pairing (insecure RFCOMM): survives the MID forgetting this phone, e.g. after another
+        //    device (a laptop) paired with it, and never pops up a pairing request.
+        // 2. The usual paired connection, as GRID Mobile / GESITS Dashboard do, then RFCOMM channel 1 directly.
+        //    Skipped on background retries when the bike isn't paired, so Android doesn't keep asking.
+        val bonded = device.bondState == BluetoothDevice.BOND_BONDED
+        var first: Exception? = null
         val s = try {
-            device.createRfcommSocketToServiceRecord(Mid.SPP).also { it.connect() }
+            device.createInsecureRfcommSocketToServiceRecord(Mid.SPP).also { it.connect() }
         } catch (e: IOException) {
-            // Same fallback as GESITS Dashboard: RFCOMM channel 1 directly.
+            first = e
+            if (!bonded && !allowPairing) throw IOException(NOT_PAIRED)
             try {
-                val m = device.javaClass.getMethod("createRfcommSocket", Int::class.javaPrimitiveType)
-                (m.invoke(device, 1) as BluetoothSocket).also { it.connect() }
-            } catch (e2: Exception) {
-                throw IOException("Classic connect failed: ${e.message}")
+                device.createRfcommSocketToServiceRecord(Mid.SPP).also { it.connect() }
+            } catch (e2: IOException) {
+                try {
+                    val m = device.javaClass.getMethod("createRfcommSocket", Int::class.javaPrimitiveType)
+                    (m.invoke(device, 1) as BluetoothSocket).also { it.connect() }
+                } catch (e3: Exception) {
+                    throw IOException("Classic connect failed: ${first.message ?: e2.message}")
+                }
             }
         }
         socket = s
@@ -73,6 +86,8 @@ class ClassicLink(
             s.outputStream.flush()
         }
     }
+
+    companion object { const val NOT_PAIRED = "not paired" }
 
     private fun reportClosed() {
         if (!closedReported) { closedReported = true; onClosed() }

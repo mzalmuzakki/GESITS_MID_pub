@@ -188,6 +188,7 @@ class MidService : Service() {
             return START_NOT_STICKY
         }
         if (intent == null) Bike.log("Service restarted by Android (the app had been stopped in the background)")
+        else pairingAllowed = true                                   // started from the app: a pairing request may show
         goForeground(fromApp = intent != null)
         holdWakeLock(true)
         if (worker?.isAlive != true) {
@@ -264,12 +265,17 @@ class MidService : Service() {
             }
         }
         val onClosed: () -> Unit = { Bike.connected = false; setStatus("Connection lost - retrying") }
-        val l: MidLink = if (s.linkType == "ble") BleLink(this, device, onData, onClosed) else ClassicLink(device, onData, onClosed)
+        val mayPair = pairingAllowed; pairingAllowed = false          // one pairing request per Connect, at most
+        val l: MidLink = if (s.linkType == "ble") BleLink(this, device, onData, onClosed) else ClassicLink(device, onData, onClosed, mayPair)
         setStatus("Connecting (${l.name}) to ${s.deviceName ?: addr}...")
         return try {
             l.open(); Bike.connected = true; setStatus("Connected (${l.name}) to ${s.deviceName ?: addr}"); l
         } catch (e: Exception) {
-            setStatus("Connect failed: ${e.message}"); null
+            if (e.message == ClassicLink.NOT_PAIRED) {
+                if (!Bike.status.startsWith("Bike not paired")) Alerts.notify(this, L.t("Pair the bike again: phone Bluetooth settings → Gesits."))
+                setStatus("Bike not paired with this phone - pair it again in Bluetooth settings, then tap Connect")
+            } else setStatus("Connect failed: ${e.message}")
+            null
         }
     }
 
@@ -604,6 +610,7 @@ class MidService : Service() {
 
     private var lastGear: String? = null
     @Volatile private var connectedAt = 0L
+    @Volatile private var pairingAllowed = false   // see ClassicLink.allowPairing
     @Volatile private var rangeOn = false       // send our range to the MID (setting on, no range test running)
     private var lastTripSent = 0L
     private var lastSohDay: String? = null

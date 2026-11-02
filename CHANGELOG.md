@@ -5,6 +5,13 @@ Versions are **v\<major\>.\<xx\>.\<yy\>** (see `android/version.properties`):
 * **xx**: feature milestone (new or changed things you notice); resets yy
 * **yy**: fixes and polish only
 
+## v0.14.01
+Bluetooth Classic reconnects:
+* Connects without pairing first (insecure RFCOMM), so the link survives the MID forgetting this phone,
+  for example after a laptop paired with it. Falls back to the usual paired connection.
+* Background reconnects never pop up a pairing request any more. If the bike isn't paired, the app
+  says so once ("pair the bike again") and waits; tapping Connect may show one request.
+
 ## v0.14.00
 Tested on a real G1 (MID `11-50-09-G1`) with the laptop toolkit: the MID's own range figure is its own
 calculation for the original battery (`AT+RANGE?` = 50.0 at 100%). `AT+TRIP` is overwritten instantly
