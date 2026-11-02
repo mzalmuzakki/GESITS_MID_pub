@@ -123,6 +123,10 @@ jobs:
           SHA-256: ${{ needs.build.outputs.sha }}
           Signed with: ${{ needs.build.outputs.signed }}
           Permissions: Bluetooth, notifications, foreground service; location only if parking is on; notification access only if directions are on. No internet."
+          # gh uploads to a draft and publishes it at the end; once that last step was lost (build 28),
+          # leaving a draft nobody could download. Make sure it is published, and check.
+          gh release edit android-latest --draft=false --prerelease
+          test "$(gh release view android-latest --json isDraft --jq .isDraft)" = "false"
 
       - name: Publish screenshots
         env:
