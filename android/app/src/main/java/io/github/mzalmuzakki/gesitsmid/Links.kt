@@ -24,6 +24,8 @@ interface MidLink {
     val isOpen: Boolean
     /** True if the link was closed because a write got stuck (the MID stopped taking data). */
     val stalled: Boolean get() = false
+    /** Big writes (pictures) are reasonable on this link: Classic, or Bluetooth LE with large packets. */
+    val picturesOk: Boolean get() = true
 }
 
 /** Bluetooth Classic SPP (RFCOMM). The main path used by both known Gesits apps. */
@@ -163,6 +165,8 @@ class BleLink(
     @Volatile override var stalled = false; private set
 
     override val isOpen get() = ready && gatt != null
+    /** With small packets (MTU < 103) a picture would keep the link busy for 15-25 s: no pictures then. */
+    override val picturesOk get() = mtu >= 103
 
     private val cb = object : BluetoothGattCallback() {
         override fun onConnectionStateChange(g: BluetoothGatt, status: Int, newState: Int) {

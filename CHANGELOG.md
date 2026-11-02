@@ -5,6 +5,34 @@ Versions are **v\<major\>.\<xx\>.\<yy\>** (see `android/version.properties`):
 * **xx**: feature milestone (new or changed things you notice); resets yy
 * **yy**: fixes and polish only
 
+## v0.20.00 - safety, fourth review
+The third recheck (two QA reviews and an audit of v0.19.00) found these. All fixed:
+* **A stuck write is now really caught** (v0.19 lost the "stuck" flag before reading it).
+* **No false alarm when you switch off right after pulling up:** "moving" now means the *latest* speed
+  answer was above 3 km/h (by when it arrived); a link drop while riding is no longer a hang by itself - it
+  becomes one only if the link opens again (so the bike is on) and the MID stays silent for 15 s, or if the
+  MID doesn't answer on 3 connections in a row. A bike that was switched off can't open a link.
+* **After any hang - and after frozen values - the MID only gets questions** (no text, clock or pictures),
+  also across reconnects and app restarts, until you look at the MID and tap "The MID works normally
+  again" on Home. (v0.19 resumed writes on a new connection, or after the app's own reconnect pauses.)
+* **Frozen but answering** now also blanks the phone speedometer (NO DATA) and blocks writes until confirmed.
+* **A clock that can't jump** for all timing (setting the phone's time no longer hides or fakes a hang).
+* **Bluetooth LE:** no pictures over a link with small packets (one would keep it busy for 15-25 s); the
+  picture interval counts from the end of the write; silence counts from the end of the app's own long writes.
+* A lost "-" on even a small battery current needs confirming; charging needs more than 2 A (an idle
+  custom pack's -1 A with a lost "-" no longer starts a "charge").
+* Text line: what the MID shows is tracked exactly (a blank that went out without its text is retried).
+* Change bike also resets the learned battery-current sign. The home-screen widget shows "not connected"
+  after Disconnect. The wake lock is held while a new link waits for its first answer. An unexpected error in
+  the service stops it cleanly. Several workers alive at once are counted (Delete waits for all).
+* Translations (Tools page, charts, picture errors, unknown error bits); protocol notes and comments fixed.
+* Pipeline: the published APK's checksum is checked against the build; a newer docs-only commit no longer
+  blocks publishing; the release's target commit is updated; emulator-script changes trigger a build.
+* 59 unit tests.
+
+**Still true:** not yet tested on the bike for long periods. Bench test first, and measure how long after
+switching off the app logs "Connection lost".
+
 ## v0.19.00 - safety, third review
 The second recheck (two QA reviews and an audit of v0.18.00) found more gaps. All fixed:
 * **Writes held back are never counted as sent:** `send()` reports whether a command went out, and "MID

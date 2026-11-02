@@ -240,6 +240,7 @@ class MainActivity : Activity() {
     private lateinit var connTitle: TextView
     private lateinit var connSub: TextView
     private lateinit var connBtn: android.widget.Button
+    private lateinit var resumeBox: LinearLayout
     private lateinit var alertCard: LinearLayout
     private lateinit var alertText: TextView
     private val live = HashMap<String, TextView>()
@@ -265,6 +266,15 @@ class MainActivity : Activity() {
             if (Bike.running) MidService.stop(this) else if (settings.address == null) chooseBikeDialog() else if (requireReady()) MidService.start(this, tap = true)
         }
         Ui.secondary(this, r, "Change bike", 1f) { chooseBikeDialog() }
+        // After a hang the MID only gets questions until you say its display works again (look at it first).
+        resumeBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }.also { cc.addView(it) }
+        Ui.text(this, resumeBox, "After the MID stopped answering, the app only asks questions: no text, clock or pictures. Check the MID: if speed, turn signals and clock work normally, tap below.", 12f, Ui.AMBER)
+        Ui.secondary(this, resumeBox, "The MID works normally again") {
+            AlertDialog.Builder(this).setTitle(L.t("Send text and clock again?"))
+                .setMessage(L.t("Only if the MID's speed and turn signals work normally. If it ever freezes again, stop safely and switch the bike off and on."))
+                .setPositiveButton(L.t("Yes, it works")) { _, _ -> Bike.allowWrites(this); Bike.dataFrozen = false }
+                .setNegativeButton(L.t("Cancel"), null).show()
+        }
 
         alertCard = Ui.card(this, col, "ATTENTION", Ui.RED)
         alertText = Ui.text(this, alertCard, "", 14f)
@@ -305,6 +315,7 @@ class MainActivity : Activity() {
         val name = settings.deviceName?.let { "$it · ${if (settings.linkType == "ble") "Bluetooth LE" else "Bluetooth Classic"}" } ?: L.t("No bike chosen yet")
         val hung = Bike.midHungSince > 0L
         connTitle.text = when {
+            hung && Bike.hangFromEarlier -> "⚠ " + L.t("The MID wasn't answering last time")
             hung -> "⚠ " + L.t("MID not answering")
             Bike.connected -> "● " + L.t("Connected")
             Bike.running -> "○ " + L.t("Connecting…")
@@ -314,6 +325,7 @@ class MainActivity : Activity() {
         connSub.text = name + (Bike.telemetry.raw["VER"]?.let { "\n" + L.t("MID version") + " $it" } ?: "") +
             (if (Bike.running && !Bike.connected) "\n" + L.status(Bike.status) else "")
         connBtn.text = L.t(if (Bike.running) "Disconnect" else "Connect")
+        resumeBox.visibility = if (Bike.writesBlocked && !hung) View.VISIBLE else View.GONE
 
         val t = Bike.telemetry
         val alerts = mutableListOf<String>()
@@ -644,10 +656,10 @@ class MainActivity : Activity() {
 
     private fun refreshTools() {
         if (!::parkInfo.isInitialized) return
-        parkInfo.text = if (settings.parkTime == 0L) "No parked location saved" else
-            "Saved " + SimpleDateFormat("EEE d MMM, HH:mm", Locale("id", "ID")).format(Date(settings.parkTime))
+        parkInfo.text = if (settings.parkTime == 0L) L.t("No parked location saved") else
+            L.t("Saved") + " " + SimpleDateFormat("EEE d MMM, HH:mm", Locale("id", "ID")).format(Date(settings.parkTime))
         val ok = getSystemService(android.os.PowerManager::class.java).isIgnoringBatteryOptimizations(packageName)
-        bgInfo.text = if (ok) "✓ Battery restriction is off" else "⚠ Battery restriction is ON - the phone may cut the connection"
+        bgInfo.text = L.t(if (ok) "✓ Battery restriction is off" else "⚠ Battery restriction is ON - the phone may cut the connection")
         bgInfo.setTextColor(if (ok) Ui.GREEN else Ui.AMBER)
         logView.text = synchronized(Bike.log) { Bike.log.toList().takeLast(40).joinToString("\n") }
     }
@@ -702,7 +714,7 @@ class MainActivity : Activity() {
             pages.remove("mid"); show("mid")
             toast("Picture ready - it will be shown on the MID")
         } catch (e: Exception) {
-            toast("Picture error: ${e.message}")
+            toast(L.t("Picture error") + ": ${e.message}")
         }
     }
 }

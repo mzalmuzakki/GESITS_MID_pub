@@ -56,7 +56,7 @@ class BatteryTracker(private val minChargePct: Float = 10f) {
             lastSoc = soc
         }
         val still = (spd ?: 0f) < 1f
-        val negative = ibat != null && ibat < -0.5f && still
+        val negative = ibat != null && ibat < -2f && still          // real charging is several amps
         if (negative) {
             if (negSinceMs < 0L) negSinceMs = nowMs
             if (!charging && nowMs - negSinceMs >= 10_000) {
@@ -121,9 +121,9 @@ class CurrentSign {
     private var firstVote = 0                          // the first window's result, until a second one agrees
 
     /**
-     * Feed raw readings about once a second; returns true when the sign changed. Two windows of ~40 s of
-     * riding that agree decide it; after that it only flips when 8 windows in a row (several minutes of riding
-     * with the current the "wrong" way) disagree, so a long downhill on regen doesn't flip it.
+     * Feed each new current reading once (one every ~5 s while riding); returns true when the sign changed. Two
+     * windows of 20 readings (~2 min of riding each) that agree decide it; after that it only flips when 8
+     * windows in a row (~13 min of riding with the current the "wrong" way) disagree.
      */
     fun update(spd: Float?, rawIbat: Float?): Boolean {
         if (spd == null || rawIbat == null || spd < 8f || kotlin.math.abs(rawIbat) < 2f) return false

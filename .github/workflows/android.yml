@@ -7,6 +7,7 @@ on:
     paths:
       - "android/**"
       - ".github/workflows/android.yml"
+      - ".github/scripts/**"
   workflow_dispatch:
 
 # Read-only by default; only the publishing job may write releases.
@@ -141,9 +142,15 @@ jobs:
         run: |
           # Riders get only APKs signed with the permanent key (checked by certificate in the build job, and here).
           case "$SIGNED" in TEST*) echo "::error::Not signed with the permanent key - not publishing"; exit 1;; esac
-          # Only the newest main: a re-run of an older run must not replace a newer release.
+          # The APK is exactly the one that was built and tested.
+          test "$(sha256sum "apk/$APK" | cut -d' ' -f1)" = "${{ needs.build.outputs.sha }}" || { echo "::error::APK checksum mismatch"; exit 1; }
+          # Only the newest app code: a re-run of an older run must not replace a newer release. Newer commits that
+          # don't touch the app or the build (docs, toolkit) don't count.
           HEAD=$(git ls-remote "https://github.com/${{ github.repository }}" refs/heads/main | cut -f1)
-          test "$HEAD" = "${{ github.sha }}" || { echo "::error::main has moved on ($HEAD) - not publishing an older build"; exit 1; }
+          if [ "$HEAD" != "${{ github.sha }}" ]; then
+            CHANGED=$(gh api "repos/${{ github.repository }}/compare/${{ github.sha }}...$HEAD" --jq '.files[].filename' | grep -E '^(android/|\.github/)' || true)
+            test -z "$CHANGED" || { echo "::error::main has newer app changes ($HEAD) - not publishing an older build"; exit 1; }
+          fi
           TITLE="Gesits MID ${{ needs.build.outputs.version }} (build ${{ github.run_number }})"
           NOTES="Built by GitHub Actions from commit ${{ github.sha }}. Unit tests passed; the test script opened every screen in an Android 14 emulator with demo data without a crash or freeze (see the screenshots release). NOT tested by this build: the Bluetooth connection and the bike. Test on the bike while parked first; if the MID ever freezes, stop safely and switch the bike off and on.
           SHA-256: ${{ needs.build.outputs.sha }}
@@ -154,7 +161,7 @@ jobs:
             # upload the new APK first, then move the tag, update the text, and remove older APKs.
             gh release upload android-latest "apk/$APK" --clobber
             gh api -X PATCH "repos/${{ github.repository }}/git/refs/tags/android-latest" -f sha="${{ github.sha }}" -F force=true >/dev/null
-            gh release edit android-latest --title "$TITLE" --notes "$NOTES" --prerelease --draft=false
+            gh release edit android-latest --title "$TITLE" --notes "$NOTES" --prerelease --draft=false --target "${{ github.sha }}"
             for a in $(gh release view android-latest --json assets --jq '.assets[].name'); do
               [ "$a" = "$APK" ] || gh release delete-asset android-latest "$a" --yes
             done

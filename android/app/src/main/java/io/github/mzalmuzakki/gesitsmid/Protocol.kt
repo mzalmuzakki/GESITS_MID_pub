@@ -139,11 +139,11 @@ class Telemetry {
     /** IBAT exactly as the MID sent it, for learning the sign. */
     @Volatile var ibatRaw: Float? = null
 
-    fun put(key: String, value: String, now: Long = System.currentTimeMillis()) { raw[key] = value; times[key] = now; lastUpdate = now }
+    fun put(key: String, value: String, now: Long = Mono.now()) { raw[key] = value; times[key] = now; lastUpdate = now }
 
-    /** Milliseconds since [key] was last received, or null if it isn't known now. */
-    fun ageMs(key: String, now: Long = System.currentTimeMillis()): Long? = times[key]?.let { now - it }
-    fun fresh(key: String, maxAgeMs: Long, now: Long = System.currentTimeMillis()): Boolean = (ageMs(key, now) ?: Long.MAX_VALUE) <= maxAgeMs
+    /** Milliseconds since [key] was last received (monotonic clock), or null if it isn't known now. */
+    fun ageMs(key: String, now: Long = Mono.now()): Long? = times[key]?.let { now - it }
+    fun fresh(key: String, maxAgeMs: Long, now: Long = Mono.now()): Boolean = (ageMs(key, now) ?: Long.MAX_VALUE) <= maxAgeMs
 
     /** Forget what is shown (link lost / MID silent) so no screen keeps showing old values as if live. */
     fun clearLive() { raw.clear(); times.clear(); ibatRaw = null }
@@ -165,7 +165,7 @@ class Telemetry {
         val x = a.toFloatOrNull() ?: return a == b
         val y = b.toFloatOrNull() ?: return false
         // current: a lost "-" (-12 -> 12) is a flip, not a small change
-        if (key == "IBAT" && x * y < 0f && kotlin.math.abs(x) > 3f && kotlin.math.abs(y) > 3f) return false
+        if (key == "IBAT" && x * y < 0f && kotlin.math.abs(x) >= 1f && kotlin.math.abs(y) >= 1f) return false
         return kotlin.math.abs(x - y) <= limit
     }
 
@@ -176,7 +176,7 @@ class Telemetry {
      * (so one that comes and goes is caught, scattered garble isn't). Returns true if it was taken.
      */
     @Synchronized
-    fun offer(key: String, value: String, now: Long = System.currentTimeMillis()): Boolean {
+    fun offer(key: String, value: String, now: Long = Mono.now()): Boolean {
         val trimmed = value.trim('"', ' ')
         val v = Replies.clean(key, value) ?: return false
         if (!widthOk(key, trimmed.length)) return false

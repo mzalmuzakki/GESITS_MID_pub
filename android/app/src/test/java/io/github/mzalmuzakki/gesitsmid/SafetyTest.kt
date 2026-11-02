@@ -75,8 +75,14 @@ class SafetyTest {
         l.connected(0); l.answered(1_000)
         l.busy(12_000)                                   // a picture took until 10 s to write, +2 s grace
         assertFalse(l.silent(11_000))
-        assertTrue(l.silent(12_001))
+        assertFalse(l.silent(19_000))                    // silence counts from the end of the grace
+        assertTrue(l.silent(20_001))
         assertTrue(l.silenceMs(15_000) <= 3_000)
+    }
+
+    @Test fun theTimingClockNeverLooksLikeZero() {
+        val a = Mono.now(); val b = Mono.now()
+        assertTrue(a > 3_000_000_000L); assertTrue(b >= a)       // "0" (never) is always long ago
     }
 }
 

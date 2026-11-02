@@ -65,7 +65,7 @@ Request: `AT+SPD?\r\n` → reply `SPD=42\r\n`. Values can be decimals (`VBAT=71.
 B's poll schedule: every 100–200 ms it sends the single most overdue key. Periods: SPD/IBAT 0.5 s ·
 VBAT 1 s · TRT/ODO 2 s · SOC 4 s · ERR/MODE/PARK/CBAT 8 s · TINV/TMOT/TBAT 15 s · SOH 30 s.
 
-This project's Android app (v0.18) is deliberately much slower: about 1.6 questions a second riding, hard
+This project's Android app (v0.18 and later) is deliberately much slower: about 1.6 questions a second riding, hard
 limit 2 commands a second in total, because a G1's MID (`11-50-09-G1`) froze under heavier traffic. Its
 periods: SPD 2 s · IBAT, ODO, PARK 5 s · VBAT, SOC, ERR 10 s · MODE 15 s · TINV/TMOT/TBAT 30 s ·
 SOH/RANGE 120 s (x3 parked, except SPD).
@@ -103,8 +103,8 @@ it as decimal unless it starts with `0x`, which contradicts its own `0800` = bit
 
 ### GRID Mobile's connect sequence (C)
 C keeps a command list, sends each entry with 10 ms between them, and **removes an entry once the
-MID answers with that key**. That includes the writes: TIME, NAV, ARROW and MAPS get an answer
-too. Initial list: `AT+TIME="HHmm"`, `AT+VER?`, `AT+MODE?`, `AT+MAPS="<logo>"`,
+MID answers with that key**. Its code expects the writes (TIME, NAV, ARROW, MAPS) to get an answer
+too - but a real G1 (`11-50-09-G1`) sends nothing back for writes (see "Found on a real G1" below). Initial list: `AT+TIME="HHmm"`, `AT+VER?`, `AT+MODE?`, `AT+MAPS="<logo>"`,
 `AT+NAV="<date, e.g. 31 Oktober 2026>"`, `AT+ARROW="1"`, then the usual queries. Queries are
 re-added after a few seconds to keep polling.
 

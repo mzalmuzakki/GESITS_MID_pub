@@ -1,6 +1,23 @@
 package io.github.mzalmuzakki.gesitsmid
 
 /**
+ * A clock for timing that never jumps (unlike the phone's date and time, which network time or the user can
+ * set back or forward). Used for all watchdog and pacing intervals; dates (rides, logs) still use the wall clock.
+ */
+object Mono {
+    // Android: time since boot including deep sleep (SystemClock.elapsedRealtime); elsewhere (unit tests): nanoTime.
+    private val source: () -> Long = try {
+        val m = Class.forName("android.os.SystemClock").getMethod("elapsedRealtime")
+        m.invoke(null) as Long
+        ({ m.invoke(null) as Long })
+    } catch (_: Throwable) {
+        val start = System.nanoTime(); ({ (System.nanoTime() - start) / 1_000_000L })
+    }
+    /** Milliseconds; offset by 1000 h so that "0" (never) is always long ago. */
+    fun now(): Long = source() + 3_600_000_000L
+}
+
+/**
  * Rules for everything the app sends to the MID. Pure Kotlin, unit-tested (SafetyTest).
  *
  * Why: on a real G1 (MID 11-50-09-G1) the MID froze - speedometer and turn signals stuck until the
@@ -76,8 +93,10 @@ class Liveness {
     fun canWrite(now: Long): Boolean = lastAnswerAt > 0L && now - lastAnswerAt < WRITE_WINDOW_MS
 
     /** True when the MID has gone silent on this connection. */
+    /** Silence counts from the last answer, or from the end of the app's own long write, whichever is later. */
     fun silent(now: Long): Boolean =
-        now >= graceUntil && (if (lastAnswerAt > 0L) now - lastAnswerAt > SILENT_AFTER_MS else now - connectedAt > FIRST_ANSWER_MS)
+        if (lastAnswerAt > 0L) now - maxOf(lastAnswerAt, graceUntil) > SILENT_AFTER_MS
+        else now - maxOf(connectedAt, graceUntil) > FIRST_ANSWER_MS
 
     /** Milliseconds of silence on this connection (since the last answer, or since connecting). */
     fun silenceMs(now: Long): Long = now - maxOf(lastAnswerAt, connectedAt, graceUntil)
@@ -101,8 +120,9 @@ class Liveness {
         else Verdict.WAIT
 
     /**
-     * The bike was moving when the MID's answers stopped: a speed above 3 km/h was current (at most 2.5 s old)
-     * within 2.5 s of the last answer. Also used when the link drops: dropping while moving is not "switched off".
+     * The bike was moving when the MID's answers stopped. [lastMovingAt] is when the latest speed answer arrived,
+     * if that answer was above 3 km/h (0 once a lower speed has come in). Moving = that answer came in at most
+     * 2.5 s before the last answer of all.
      */
     fun movingWhenItStopped(lastMovingAt: Long): Boolean =
         lastMovingAt > 0L && lastAnswerAt > 0L && lastMovingAt >= lastAnswerAt - 2_500L

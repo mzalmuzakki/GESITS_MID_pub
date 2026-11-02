@@ -59,8 +59,8 @@ class SpeedoView(ctx: Context) : View(ctx) {
         val gear = t.gear ?: "-"
         c.drawText(gear, w - u * 3.6f, u * 0.9f, p(u * 0.6f, if (gear == "P") AMBER else if (gear == "D") GREEN else MUTED, Paint.Align.RIGHT))
 
-        // centre: speed - only a reading from the last 3 s; otherwise a clear NO DATA, never a frozen number
-        val spd = if (Bike.connected && t.fresh("SPD", 5000)) t.f("SPD") else null   // speed is asked every 2 s
+        // centre: speed - only a reading from the last 5 s (asked every 2 s); otherwise a clear NO DATA, never a frozen number
+        val spd = if (Bike.connected && !Bike.dataFrozen && t.fresh("SPD", 5000)) t.f("SPD") else null   // asked every 2 s
         c.drawText(spd?.toInt()?.toString() ?: "--", w * 0.5f, h * 0.62f, p(u * 4.2f, if (spd == null) RED else TEXT, Paint.Align.CENTER))
         c.drawText(if (spd == null) L.t("NO DATA - don't rely on this speed") else "km/h", w * 0.5f, h * 0.62f + u * 0.8f,
             p(u * 0.5f, if (spd == null) RED else MUTED, Paint.Align.CENTER))

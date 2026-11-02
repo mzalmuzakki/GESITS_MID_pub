@@ -67,6 +67,20 @@ object L {
         "Save text" to "Simpan teks", "Text cleared" to "Teks dihapus",
         "Pair the bike again: phone Bluetooth settings → Gesits." to "Pasangkan ulang motor: pengaturan Bluetooth HP → Gesits.",
         "SLOW DOWN" to "PELAN",
+        "✓ Battery restriction is off" to "✓ Pembatasan baterai mati",
+        "⚠ Battery restriction is ON - the phone may cut the connection" to "⚠ Pembatasan baterai AKTIF - HP bisa memutus koneksi",
+        "The MID wasn't answering last time" to "MID tidak merespons terakhir kali",
+        "After the MID stopped answering, the app only asks questions: no text, clock or pictures. Check the MID: if speed, turn signals and clock work normally, tap below." to
+            "Setelah MID berhenti merespons, aplikasi hanya bertanya: tanpa teks, jam, atau gambar. Periksa MID: jika kecepatan, lampu sein, dan jam normal, ketuk di bawah.",
+        "The MID works normally again" to "MID sudah normal lagi",
+        "Send text and clock again?" to "Kirim teks dan jam lagi?",
+        "Only if the MID's speed and turn signals work normally. If it ever freezes again, stop safely and switch the bike off and on." to
+            "Hanya jika kecepatan dan lampu sein MID normal. Jika macet lagi, berhenti dengan aman lalu matikan dan nyalakan motor.",
+        "Yes, it works" to "Ya, normal",
+        "This Bluetooth LE link is too slow for pictures - not sent" to "Tautan Bluetooth LE ini terlalu lambat untuk gambar - tidak dikirim",
+        "The MID answers again - questions only until you confirm its display works" to "MID menjawab lagi - hanya pertanyaan sampai Anda memastikan layarnya normal",
+        "The MID doesn't answer on an open link - treated as a hang" to "MID tidak menjawab pada tautan terbuka - dianggap macet",
+        "No data yet" to "Belum ada data", "Picture error" to "Kesalahan gambar", "Unknown error bit" to "Bit error tidak dikenal",
         "The MID's values look frozen (speed shown but the odometer doesn't move). When it is safe, stop and switch the bike off and on." to
             "Nilai MID tampak macet (kecepatan tampil tapi odometer tidak bergerak). Jika aman, berhenti lalu matikan dan nyalakan motor.",
         "Could not stop the connection - nothing was deleted. Try again." to "Koneksi tidak bisa dihentikan - tidak ada yang dihapus. Coba lagi.",

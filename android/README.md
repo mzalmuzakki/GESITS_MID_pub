@@ -28,7 +28,8 @@ One screen with four tabs at the bottom:
   temperatures and errors.
 * **Pictures on the MID map area are off by default** (they made a G1's MID freeze, see *Safety*). If you
   switch them on: **your own live dashboard** (same design as `docs/img/custom_screen.png`) or **a picture
-  you choose**, at most one every 10 s and at most 4000 characters each.
+  you choose**, at most one every 10 s and at most 4000 characters each (not over a Bluetooth LE link with
+  small packets, where one picture would keep the link busy for 15-25 s).
 * **Adaptive range in the MID text line:** range = battery % × km per 1%, measured from the odometer
   and battery % over your last 40% of riding. It starts at the original G1 battery's 0.5 km per 1%
   (~50 km) and settles after about 10% of battery ridden, so a bigger battery is picked up within a ride.
@@ -85,20 +86,24 @@ questions): speed and turn signals stuck until the ignition was switched off and
   back is tried again later, never counted as done. On a new connection only one question every 3 s goes
   out until the MID answers.
 * **If the MID stops answering for 8 s:** the app stops asking (one question every 3 s). It counts as a
-  hang - with a warning each time - if you were moving when the answers stopped and the link is still up
-  after 15 s, if the link is still up after 30 s, if a write gets stuck, or if the link drops while you
-  ride. Also when the MID never answers on a new connection for 30 s (e.g. it froze before the app
-  connected). While hung, the app asks one question every 15 s - also across reconnects, Disconnect/Connect
-  and app restarts - until the MID answers again. If the link drops while you're stopped, the bike was most
-  likely switched off: no warning, reconnect attempts with a growing pause (2 s ... 60 s).
-* **After the MID answers again:** on a new connection after the link was down 10 s or more (bike switched
-  off and on) everything resumes; if it came back by itself, the app sticks to questions (at the parked
-  rate) until then.
+  hang - with a warning each time - if:
+  * you were moving when the answers stopped and the link is still up 15 s later;
+  * the link is still up after 30 s of silence (also when the MID never answers on a new connection);
+  * a write gets stuck (the MID stops taking data);
+  * the link dropped while you rode and, when it opens again (so the bike is on), the MID stays silent
+    15 s; or the MID doesn't answer on 3 connections in a row.
+
+  If the link drops while you're stopped, or you switch off right after pulling up, the bike was most likely
+  switched off: no warning (no link can open while it's off). While hung, the app asks one question every 15 s
+  - also across reconnects, Disconnect/Connect and app restarts - until the MID answers again.
+* **After a hang (or frozen values) the MID only gets questions**, no text, clock or pictures - also after app
+  restarts - until you look at the MID and tap **"The MID works normally again"** on Home.
 * **Frozen but answering:** if the speed shows 15 km/h or more for 90 s while the odometer doesn't move, the
-  app warns you and stops writing. A MID that keeps answering while its display is frozen can't otherwise be
-  told apart - always watch the MID itself.
+  app warns you, shows NO DATA on the phone speedometer and stops writing. A MID that keeps answering while its
+  display is frozen can't otherwise be told apart - always watch the MID itself.
 * Live values that stop coming in are cleared (all of them after 8 s of silence, single ones once they are
   well overdue); the phone speed shows NO DATA when it's more than 5 s old - never a frozen number.
+* All timing uses a clock that can't be changed (changing the phone's date or time doesn't affect it).
 
 These lower the risk; they can't remove it - the MID's firmware is undocumented. This version has not yet
 been tested on a bike for long periods. **Test it parked first. If the MID ever freezes: stop safely and

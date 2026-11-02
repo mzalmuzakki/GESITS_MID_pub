@@ -79,7 +79,7 @@ class DiagnosisActivity : Activity() {
             mask == null -> L.t("Waiting for data...")
             mask == 0 -> L.t("OK - no errors")
             else -> (0 until 16).filter { ((mask shr it) and 1) == 1 }.joinToString("\n\n") { b ->
-                "⚠ ${Mid.ERROR_BITS[b]?.let { L.t(it) } ?: "Unknown error bit $b"}\n${L.t(fixes[b] ?: "Unknown code - note it and ask a workshop.")}"
+                "⚠ ${Mid.ERROR_BITS[b]?.let { L.t(it) } ?: (L.t("Unknown error bit") + " $b")}\n${L.t(fixes[b] ?: "Unknown code - note it and ask a workshop.")}"
             } + String.format(Locale.US, "\n\n(raw ERR=%04X)", mask)
         }
         errors.setTextColor(if (mask != null && mask != 0) Color.rgb(235, 60, 60) else Color.WHITE)

@@ -33,7 +33,7 @@ class ChartView(ctx: Context, private val heightDp: Int = 140) : View(ctx) {
         val left = 34 * dp; val bottom = height - 16 * dp; val top = 14 * dp; val right = width - 4 * dp
         val all = series.flatMap { it.values }.filterNotNull()
         if (all.isEmpty()) {
-            c.drawText("No data yet", left, (top + bottom) / 2, text); return
+            c.drawText(L.t("No data yet"), left, (top + bottom) / 2, text); return
         }
         var lo = minOf(0f, all.min()); var hi = all.max()
         if (hi - lo < 1e-3f) hi = lo + 1f
