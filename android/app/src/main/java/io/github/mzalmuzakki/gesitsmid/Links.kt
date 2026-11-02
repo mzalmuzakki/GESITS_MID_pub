@@ -32,6 +32,8 @@ class ClassicLink(
     private val onClosed: () -> Unit,
     /** May Android show a pairing request? Only when you started the connection, never on background retries. */
     private val allowPairing: Boolean = true,
+    /** The method that worked last time, tried first. */
+    private val preferred: String? = null,
 ) : MidLink {
     override val name = "Classic"
     @Volatile private var socket: BluetoothSocket? = null
@@ -40,34 +42,46 @@ class ClassicLink(
     // isConnected stays true after the other side vanishes; the receive thread ending is the real signal.
     override val isOpen get() = socket?.isConnected == true && !closedReported
 
+    /** The method that worked: "insecure", "secure" or "ch1". */
+    var usedMethod: String? = null; private set
+
     override fun open() {
-        // 1. Without pairing (insecure RFCOMM): survives the MID forgetting this phone, e.g. after another
-        //    device (a laptop) paired with it, and never pops up a pairing request.
-        // 2. The usual paired connection, as GRID Mobile / GESITS Dashboard do, then RFCOMM channel 1 directly.
-        //    Skipped on background retries when the bike isn't paired, so Android doesn't keep asking.
+        // insecure: no pairing needed (survives the MID forgetting this phone) and never pops up a request.
+        // secure: the usual paired connection, as GRID Mobile / GESITS Dashboard do.  ch1: RFCOMM channel 1.
+        // The way that worked last time goes first, so reconnecting doesn't wait for a way this MID refuses.
+        // Without a pairing, the paired ways are skipped on background retries so Android doesn't keep asking.
         val bonded = device.bondState == BluetoothDevice.BOND_BONDED
-        var first: Exception? = null
-        val s = try {
-            device.createInsecureRfcommSocketToServiceRecord(Mid.SPP).also { it.connect() }
-        } catch (e: IOException) {
-            first = e
-            if (!bonded && !allowPairing) throw IOException(NOT_PAIRED)
+        val order = (listOfNotNull(preferred) + listOf("insecure", "secure", "ch1")).distinct()
+            .filter { it == "insecure" || bonded || allowPairing }
+        if (order.isEmpty()) throw IOException(NOT_PAIRED)
+        var firstError: Exception? = null
+        var s: BluetoothSocket? = null
+        for (m in order) {
+            var sock: BluetoothSocket? = null
             try {
-                device.createRfcommSocketToServiceRecord(Mid.SPP).also { it.connect() }
-            } catch (e2: IOException) {
-                try {
-                    val m = device.javaClass.getMethod("createRfcommSocket", Int::class.javaPrimitiveType)
-                    (m.invoke(device, 1) as BluetoothSocket).also { it.connect() }
-                } catch (e3: Exception) {
-                    throw IOException("Classic connect failed: ${first.message ?: e2.message}")
+                val created: BluetoothSocket = when (m) {
+                    "insecure" -> device.createInsecureRfcommSocketToServiceRecord(Mid.SPP)
+                    "secure" -> device.createRfcommSocketToServiceRecord(Mid.SPP)
+                    else -> device.javaClass.getMethod("createRfcommSocket", Int::class.javaPrimitiveType).invoke(device, 1) as BluetoothSocket
                 }
+                sock = created
+                created.connect()
+                s = created; usedMethod = m; break
+            } catch (e: Exception) {
+                if (firstError == null) firstError = e
+                try { sock?.close() } catch (_: IOException) {}
             }
         }
-        socket = s
+        if (s == null) {
+            if (!bonded && !allowPairing && order == listOf("insecure")) throw IOException(NOT_PAIRED)
+            throw IOException("Classic connect failed: ${firstError?.message}")
+        }
+        val conn: BluetoothSocket = s
+        socket = conn
         Thread({
             val buf = ByteArray(1024)
             try {
-                val input = s.inputStream
+                val input = conn.inputStream
                 while (true) {
                     val n = input.read(buf)
                     if (n < 0) break

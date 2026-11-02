@@ -80,12 +80,74 @@ object Mid {
     )
 }
 
+/**
+ * What a believable reply looks like, per key (formats seen on a real G1, MID 11-50-09-G1: SOC=100,
+ * ODO=003791.6, TINV=0046, IBAT=  -1, ERR=0000 ...). The MID sometimes drops characters, giving lines like
+ * "AT+VDO=003791.6" or "AT+TINV003796.0"; those must never become a reading.
+ */
+object Replies {
+    private val INT = Regex("""-?\d{1,4}""")
+    private val DEC = Regex("""-?\d{1,7}(\.\d{1,2})?""")
+    private class Rule(val re: Regex, val min: Float, val max: Float, val confirmJump: Float)
+
+    // confirmJump: a change bigger than this is only accepted when the next reply says the same.
+    private val rules = mapOf(
+        "SPD" to Rule(INT, 0f, 200f, Float.MAX_VALUE),
+        "SOC" to Rule(INT, 0f, 100f, 1f),
+        "SOH" to Rule(INT, 0f, 100f, 0f),
+        "ODO" to Rule(DEC, 0f, 9_999_999f, 0.5f),
+        "TINV" to Rule(INT, -40f, 150f, 3f), "TMOT" to Rule(INT, -40f, 150f, 3f), "TBAT" to Rule(INT, -40f, 100f, 3f),
+        "VBAT" to Rule(DEC, 20f, 150f, 5f),
+        "IBAT" to Rule(DEC, -300f, 400f, Float.MAX_VALUE),
+        "TRT" to Rule(INT, 0f, 1000f, Float.MAX_VALUE),
+        "MODE" to Rule(Regex("[0-9]"), 0f, 9f, 0f),
+        "PARK" to Rule(Regex("[01]"), 0f, 1f, 0f),
+        "RANGE" to Rule(DEC, 0f, 999f, 0f),
+        "CBAT" to Rule(Regex("""\d{1,6}"""), 0f, 999_999f, Float.MAX_VALUE),
+    )
+
+    /** null = not believable; else the cleaned value. ERR is hex; VER and unknown keys pass as they are. */
+    fun clean(key: String, value: String): String? {
+        val v = value.trim('"', ' ')
+        if (key == "ERR") return v.takeIf { Regex("[0-9A-Fa-f]{1,4}").matches(it) }
+        val r = rules[key] ?: return v.takeIf { it.isNotEmpty() && key in OTHER_KEYS }
+        if (!r.re.matches(v)) return null
+        val f = v.toFloatOrNull() ?: return null
+        return v.takeIf { f in r.min..r.max }
+    }
+
+    /** Other answers worth keeping as they are (the console log shows every line anyway). */
+    private val OTHER_KEYS = setOf("VER", "NUMBAT", "FWD") + Mid.CYCLE_KEYS
+
+    /** How big a change must be before it needs a second, matching reply (0 = any change). */
+    fun confirmJump(key: String): Float = if (key == "ERR") 0f else rules[key]?.confirmJump ?: Float.MAX_VALUE
+}
+
 /** Latest values received from the bike. Thread-safe. */
 class Telemetry {
     val raw = ConcurrentHashMap<String, String>()
     @Volatile var lastUpdate = 0L
+    private val pending = ConcurrentHashMap<String, String>()
 
     fun put(key: String, value: String) { raw[key] = value; lastUpdate = System.currentTimeMillis() }
+
+    /**
+     * A reply from the MID: kept only if it is well-formed and plausible, and a big jump (battery %,
+     * error code, odometer...) only once a second reply agrees. Returns true if it was taken.
+     */
+    fun offer(key: String, value: String): Boolean {
+        val v = Replies.clean(key, value) ?: return false
+        val cur = raw[key]
+        val limit = Replies.confirmJump(key)
+        if (cur != null && cur != v && limit != Float.MAX_VALUE) {
+            val a = cur.toFloatOrNull(); val b = v.toFloatOrNull()
+            val big = if (a != null && b != null && key != "ERR") kotlin.math.abs(a - b) > limit else true
+            if (big && pending[key] != v) { pending[key] = v; return false }
+        }
+        pending.remove(key)
+        put(key, v)
+        return true
+    }
     fun f(key: String): Float? = raw[key]?.trim('"', ' ')?.toFloatOrNull()
 
     val mode: String? get() = when (f("MODE")?.toInt()) { 0 -> "ECO"; 1 -> "URBAN"; 2 -> "SPORT"; null -> null; else -> "?" }

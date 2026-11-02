@@ -62,6 +62,7 @@ class RangeEstimator(
         val drop = anchorSoc - socPercent
         if (drop < 1f) return false
         val km = odoKm - anchorOdo
+        if (drop > 3f && km < drop * 0.1f) { anchor(odoKm, socPercent); return false }   // battery gone without riding: a garbled reading
         anchor(odoKm, socPercent)
         if (km < 0f || km > drop * maxKmPerPercent) return false   // implausible: skip
         segments.addLast(Segment(km, drop))
@@ -93,7 +94,8 @@ class RangeEstimator(
             anchorOdo = h[0].toFloat(); anchorSoc = h[1].toFloat(); lastSampleMs = h[2].toLong()
             body.split("|").filter { it.isNotBlank() }.forEach {
                 val (k, p) = it.split(":")
-                segments.addLast(Segment(k.toFloat(), p.toFloat()))
+                if (p.toFloat() <= 3f || k.toFloat() >= p.toFloat() * 0.1f)               // drop garbled jumps learned before v0.14.02
+                    segments.addLast(Segment(k.toFloat(), p.toFloat()))
             }
         } catch (_: Exception) {
             reset()

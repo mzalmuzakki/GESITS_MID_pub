@@ -79,6 +79,7 @@ class EnergyRange(
         whSinceEdge += dWh
         if (soc != null && !soc.isNaN() && soc in 0f..100f) {
             if (!lastSoc.isNaN() && soc != lastSoc) {
+                if (kotlin.math.abs(soc - lastSoc) > 3f) edgeSoc = Float.NaN     // a jump, not use (garbled reading)
                 if (!edgeSoc.isNaN()) {
                     val dPct = soc - edgeSoc
                     val perPct = -whSinceEdge / dPct              // > 0 when energy and % moved together
@@ -89,7 +90,7 @@ class EnergyRange(
             lastSoc = soc
         }
         if (odo != null && !odo.isNaN()) {
-            if (charging || (!lastOdo.isNaN() && odo < lastOdo - 0.05f)) { edgeOdo = Float.NaN; whSinceOdo = 0f }
+            if (charging || (!lastOdo.isNaN() && (odo < lastOdo - 0.05f || odo > lastOdo + 1f))) { edgeOdo = Float.NaN; whSinceOdo = 0f }
             else {
                 whSinceOdo += dWh
                 if (!lastOdo.isNaN() && odo != lastOdo) {

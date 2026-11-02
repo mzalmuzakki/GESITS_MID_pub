@@ -96,6 +96,8 @@ class Settings(ctx: Context) {
     /** "dashboard", "picture", "grid" (calibration) or "off" */
     var screenMode: String get() = p.getString("screen", "dashboard")!!; set(v) = p.edit().putString("screen", v).apply()
     /** Show the app's adaptive range in the MID text line (when you have no text of your own). */
+    /** How the Classic link last connected (insecure / secure / ch1): tried first next time. */
+    var classicMethod: String? get() = p.getString("classicMethod", null); set(v) = p.edit().putString("classicMethod", v).apply()
     var rangeLine: Boolean get() = p.getBoolean("rangeLine", true); set(v) = p.edit().putBoolean("rangeLine", v).apply()
     /** Also try to replace the MID's own range figure with AT+TRIP. On a G1 (MID 11-50-09-G1) it reverts instantly. */
     var rangeOverride: Boolean get() = p.getBoolean("rangeOverride", false); set(v) = p.edit().putBoolean("rangeOverride", v).apply()
@@ -174,6 +176,9 @@ class MidService : Service() {
     private val parser = LineParser()
     private var frameNo = 0
     private var lastSend = 0L
+    @Volatile private var awaitKey: String? = null     // question sent, answer not yet received
+    @Volatile private var awaitSince = 0L
+    @Volatile private var quietUntil = 0L               // no commands before this (MID drawing a picture)
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -261,15 +266,21 @@ class MidService : Service() {
                     // The MID answers writes with the command's name (as GRID Mobile relies on): note the confirmation.
                     val up = line.uppercase()
                     Bike.ACK_KEYS.firstOrNull { up.contains(it) }?.let { Bike.ackAt[it] = System.currentTimeMillis() }
-                }) { k, v -> Bike.telemetry.put(k, v) }
+                }) { k, v ->
+                    if (k == awaitKey) awaitKey = null                       // the answer we were waiting for
+                    if (!Bike.telemetry.offer(k, v) && Replies.clean(k, v) == null) Bike.log("ignored garbled reply: $k=$v")
+                }
             }
         }
         val onClosed: () -> Unit = { Bike.connected = false; setStatus("Connection lost - retrying") }
         val mayPair = pairingAllowed; pairingAllowed = false          // one pairing request per Connect, at most
-        val l: MidLink = if (s.linkType == "ble") BleLink(this, device, onData, onClosed) else ClassicLink(device, onData, onClosed, mayPair)
+        val l: MidLink = if (s.linkType == "ble") BleLink(this, device, onData, onClosed)
+            else ClassicLink(device, onData, onClosed, mayPair, s.classicMethod)
         setStatus("Connecting (${l.name}) to ${s.deviceName ?: addr}...")
         return try {
-            l.open(); Bike.connected = true; setStatus("Connected (${l.name}) to ${s.deviceName ?: addr}"); l
+            l.open(); Bike.connected = true
+            (l as? ClassicLink)?.usedMethod?.let { s.classicMethod = it }   // try the same way first next time
+            setStatus("Connected (${l.name}) to ${s.deviceName ?: addr}"); l
         } catch (e: Exception) {
             if (e.message == ClassicLink.NOT_PAIRED) {
                 if (!Bike.status.startsWith("Bike not paired")) Alerts.notify(this, L.t("Pair the bike again: phone Bluetooth settings → Gesits."))
@@ -282,10 +293,18 @@ class MidService : Service() {
     /** All writes go through here: one at a time, >= 30 ms apart (as GESITS Dashboard does). */
     private fun send(cmd: String) {
         val l = link ?: return
-        val wait = lastSend + 30 - System.currentTimeMillis()
+        // The MID handles one thing at a time; talking over its answer garbles it ("AT+TINV003796.0").
+        // So: wait for the answer to the last question (max 300 ms), keep 80 ms between commands like
+        // GESITS Dashboard, and leave the MID alone for a moment after a picture while it draws it.
+        val asked = awaitSince
+        while (awaitKey != null && System.currentTimeMillis() - asked < 300) Thread.sleep(10)
+        awaitKey = null
+        val wait = maxOf(lastSend + 80, quietUntil) - System.currentTimeMillis()
         if (wait > 0) Thread.sleep(wait)
         l.write(cmd.toByteArray(Charsets.US_ASCII))
         lastSend = System.currentTimeMillis()
+        if (cmd.endsWith("?\r\n") && cmd.startsWith("AT+")) { awaitKey = cmd.substring(3, cmd.length - 3); awaitSince = lastSend }
+        if (cmd.startsWith("AT+MAPS")) quietUntil = lastSend + 600
         if (cmd.startsWith("AT+")) {
             val k = cmd.substring(3).substringBefore('=').substringBefore('?').trim()
             if (k in Bike.ACK_KEYS && cmd.contains('=')) Bike.sentAt[k] = lastSend

@@ -78,4 +78,12 @@ class RangeTest {
         assertEquals(r.kmPerPercent, r2.kmPerPercent, 0.001f)
         r2.load("garbage"); assertEquals(0f, r2.learnedPercent)
     }
+
+    @Test fun aGarbledBatteryJumpIsNotLearned() {
+        val r = RangeEstimator()
+        r.update(1000f, 96f, 0)
+        assertFalse(r.update(1000.1f, 2f, 1000))     // 96 -> 2 % in a second: a bad reading, not riding
+        assertEquals(0f, r.learnedPercent)
+    }
 }
+

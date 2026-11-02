@@ -5,6 +5,17 @@ Versions are **v\<major\>.\<xx\>.\<yy\>** (see `android/version.properties`):
 * **xx**: feature milestone (new or changed things you notice); resets yy
 * **yy**: fixes and polish only
 
+## v0.14.02
+From a real ride log (the MID dropped characters: "AT+VDO=003791.6", "AT+TINV003796.0"):
+* **One question at a time:** the app waits for each answer (max 0.3 s), keeps 80 ms between commands
+  (as GESITS Dashboard does) and leaves the MID alone for 0.6 s after each picture while it draws it.
+* **Garbled answers are ignored:** every value must match the MID's exact format and a plausible range,
+  and big jumps (battery %, error codes, odometer...) count only when the next answer agrees. This
+  stops false alarms ("Under voltage", "Motor fault", "Battery low 2%"), false "charging" and a broken
+  learned range. Range learned from such jumps before is dropped.
+* **Faster reconnects:** the connection method that worked (paired / unpaired) is remembered and tried
+  first, instead of waiting ~30 s for a method this MID refuses.
+
 ## v0.14.01
 Bluetooth Classic reconnects:
 * Connects without pairing first (insecure RFCOMM), so the link survives the MID forgetting this phone,

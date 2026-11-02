@@ -19,4 +19,27 @@ class ProtocolTest {
         assertEquals(-725f, t.powerW); assertEquals(0x800, t.errorMask)
         assertEquals(1, t.errors.size); assertTrue(t.errors[0].contains("Throttle"))
     }
+
+    @Test fun garbledRepliesFromARealG1AreIgnored() {
+        val t = Telemetry()
+        val p = LineParser()
+        val bytes = "AT+SOC=100\r\nAT+ODO=003791.6\r\nAT+VDO=003791.6\r\nAT+SD=012\r\n7\r\nAT+TINV003796.0\r\nAT+IBAT=   1\r\nAT+ERR=0000\r\n"
+        p.feed(bytes.toByteArray()) { k, v -> t.offer(k, v) }
+        assertEquals("100", t.raw["SOC"]); assertEquals("003791.6", t.raw["ODO"]); assertEquals("1", t.raw["IBAT"])
+        assertNull(t.raw["VDO"]); assertNull(t.raw["SD"]); assertNull(t.raw["TINV"])
+        assertTrue(t.errors.isEmpty())
+    }
+
+    @Test fun bigJumpsNeedASecondMatchingReply() {
+        val t = Telemetry()
+        assertTrue(t.offer("SOC", "100"))
+        assertFalse(t.offer("SOC", "2"))            // a single odd reading: ignored
+        assertEquals(100f, t.f("SOC"))
+        assertTrue(t.offer("SOC", "99"))            // normal 1 % step: taken at once
+        assertTrue(t.offer("ERR", "0000"))
+        assertFalse(t.offer("ERR", "0080")); assertTrue(t.errors.isEmpty())   // one "Under voltage": ignored
+        assertTrue(t.offer("ERR", "0080")); assertEquals(listOf("Under voltage"), t.errors)   // twice: real
+        assertFalse(t.offer("SOC", "abc")); assertFalse(t.offer("SPD", "1234")); assertFalse(t.offer("PARK", "7"))
+    }
 }
+
