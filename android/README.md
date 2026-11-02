@@ -98,12 +98,15 @@ questions): speed and turn signals stuck until the ignition was switched off and
   - also across reconnects, Disconnect/Connect and app restarts - until the MID answers again.
 * **After a hang (or frozen values) the MID only gets questions**, no text, clock or pictures - also after app
   restarts - until you look at the MID and tap **"The MID works normally again"** on Home.
-* **Frozen but answering:** if the speed shows 15 km/h or more for 90 s while the odometer doesn't move, the
-  app warns you, shows NO DATA on the phone speedometer and stops writing. A MID that keeps answering while its
-  display is frozen can't otherwise be told apart - always watch the MID itself.
+* **Frozen but answering:** if the speed shows 15 km/h or more for 90 s while fresh odometer answers don't move,
+  the app warns you, stops writing and shows no values as live: Home, Diagnosis, the speedometer, the widget and
+  the notification say "MID values look frozen" with "--". This lasts across reconnects until the odometer
+  really moves past where it froze, or you confirm on Home. A MID that keeps answering while its display is
+  frozen can't otherwise be told apart - always watch the MID itself.
 * Live values that stop coming in are cleared (all of them after 8 s of silence, single ones once they are
   well overdue); the phone speed shows NO DATA when it's more than 5 s old - never a frozen number.
-* All timing uses a clock that can't be changed (changing the phone's date or time doesn't affect it).
+* The safety timing (silence, hang, writes) uses a clock that can't be changed; a few minor timers (the Classic
+  stuck-write watchdog, ride end, calibration grid, "Sent to the MID" card) still use the phone's clock.
 
 These lower the risk; they can't remove it - the MID's firmware is undocumented. This version has not yet
 been tested on a bike for long periods. **Test it parked first. If the MID ever freezes: stop safely and

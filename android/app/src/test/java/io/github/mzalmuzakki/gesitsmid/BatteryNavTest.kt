@@ -71,6 +71,16 @@ class BatteryNavTest {
         assertEquals(NavParser.Turn.ROUNDABOUT, NavParser.turnOf("Di bundaran, ambil jalan keluar ke-2"))
         assertEquals(NavParser.Turn.SLIGHT_LEFT, NavParser.turnOf("Keep left at the fork"))
         assertEquals(NavParser.Turn.ARRIVE, NavParser.turnOf("Anda telah tiba di tujuan"))
+        // turn words in the street name don't count (v0.20 review #6)
+        assertEquals(NavParser.Turn.RIGHT, NavParser.parse("200 m", "Turn right onto Jl. Pasar Kiri", null)!!.turn)
+        assertEquals(NavParser.Turn.RIGHT, NavParser.turnOf("Turn right onto Cleft Rd"))
+        assertEquals(NavParser.Turn.RIGHT, NavParser.turnOf("Belok kanan ke Jl. Tiban Raya"))
+        assertEquals(NavParser.Turn.LEFT, NavParser.turnOf("Belok kiri ke Jl. Kanan Raya"))
+        assertEquals(NavParser.Turn.SLIGHT_LEFT, NavParser.turnOf("Tetap di kiri menuju Jl. Tol"))
+        assertEquals(NavParser.Turn.SLIGHT_RIGHT, NavParser.turnOf("Sedikit ke kanan ke Jl. Kiri"))
+        assertEquals(NavParser.Turn.ARRIVE, NavParser.turnOf("Your destination is on the left"))
+        assertEquals(NavParser.Turn.STRAIGHT, NavParser.turnOf("Continue onto Jl. Kiri Kanan"))
+        assertEquals(NavParser.Turn.NONE, NavParser.turnOf("Jl. Pasar Kiri"))
     }
 
     @Test fun learnsReversedBatteryCurrent() {

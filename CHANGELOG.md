@@ -5,6 +5,26 @@ Versions are **v\<major\>.\<xx\>.\<yy\>** (see `android/version.properties`):
 * **xx**: feature milestone (new or changed things you notice); resets yy
 * **yy**: fixes and polish only
 
+## v0.20.01 - fixes from the fifth review
+An independent review of v0.20.00 (one QA, one auditor) found no high-severity problems. Fixed now (the owner's
+choice; the rest are listed in the review and still open):
+* **Hang warning while riding stays at 15 s when one speed answer was lost:** "moving when the answers
+  stopped" now allows 5 s (more than two speed questions) instead of 2.5 s, which a single garbled speed
+  answer used to break, doubling the delay to 30 s.
+* **Frozen values stay frozen across reconnects:** the odometer at the moment of detection is kept; the flag
+  clears only when the odometer has moved 0.2 km past it (or you confirm on Home), not because a new link started.
+* **Frozen values are no longer shown as live anywhere:** Home, Diagnosis, the speedometer, the widget and the
+  notification show "MID values look frozen" and "--"; the Home box explains the frozen case.
+* **No false "values frozen" from garbled odometer answers:** only fresh odometer answers (last 15 s) count,
+  and the check restarts after silence or a hang.
+* **Directions no longer take turn words from the street name:** "Turn right onto Jl. Pasar Kiri" is a right
+  turn, "Belok kanan ke Jl. Tiban Raya" no longer reads as "arrive"; whole words only, and the first
+  manoeuvre word wins.
+* Docs: the README no longer claims all timing ignores phone clock changes.
+
+Still open from that review (not changed): BLE switch-off seen as a hang (#1), switching off while rolling
+(#2, needs the key-off timing measured on the bike), and the Low items #8-#20.
+
 ## v0.20.00 - safety, fourth review
 The third recheck (two QA reviews and an audit of v0.19.00) found these. All fixed:
 * **A stuck write is now really caught** (v0.19 lost the "stuck" flag before reading it).

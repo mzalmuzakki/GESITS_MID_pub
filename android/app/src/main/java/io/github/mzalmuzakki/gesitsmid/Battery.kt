@@ -192,19 +192,42 @@ object NavParser {
 
     private val dist = Regex("""(\d+(?:[.,]\d+)?)\s?(km|m|mi|ft)\b""", RegexOption.IGNORE_CASE)
 
+    // Phrases per turn; when several match, the one that comes first in the instruction wins (a longer phrase
+    // wins a tie, so "slight left" beats "left"). Whole words only: "Cleft" is not "left", "Tiban" not "tiba".
+    private val turnWords: List<Pair<Turn, List<String>>> = listOf(
+        Turn.ARRIVE to listOf("arrive", "arriving", "destination", "tiba", "tujuan"),
+        Turn.UTURN to listOf("u-turn", "putar balik", "make a u"),
+        Turn.ROUNDABOUT to listOf("roundabout", "bundaran"),
+        Turn.SLIGHT_LEFT to listOf("slight left", "keep left", "sedikit ke kiri", "agak ke kiri", "tetap di kiri", "tetap di jalur kiri"),
+        Turn.SLIGHT_RIGHT to listOf("slight right", "keep right", "sedikit ke kanan", "agak ke kanan", "tetap di kanan", "tetap di jalur kanan"),
+        Turn.LEFT to listOf("left", "kiri"),
+        Turn.RIGHT to listOf("right", "kanan"),
+        Turn.STRAIGHT to listOf("straight", "continue", "head", "lurus", "terus", "lanjutkan"),
+    )
+    private val turnRegex: List<Triple<Turn, String, Regex>> = turnWords.flatMap { (turn, words) ->
+        words.map { w -> Triple(turn, w, Regex("(?<![\\p{L}\\d])" + Regex.escape(w).replace(" ", "\\E\\s+\\Q") + "(?![\\p{L}\\d])", RegexOption.IGNORE_CASE)) }
+    }
+    /**
+     * Where the street name starts ("onto Jl. Pasar Kiri", "ke Jl. ..."): turn words after it are part of a name,
+     * not the manoeuvre. "ke" only with a space after it and not in "ke kiri/kanan", so "keluar ke-2" (roundabout
+     * exit) and "sedikit ke kiri" stay.
+     */
+    private val streetStart = Regex("""(?i)(?<![\p{L}\d])(onto|to|toward|towards|menuju|ke(?!\s+(?:kiri|kanan)\b)|via|on|at|jl\.|jln\.?|jalan)(?=\s)""")
+
+    /** The manoeuvre part of one instruction line: the text before the street name. */
+    fun manoeuvre(line: String): String = streetStart.find(line)?.let { line.substring(0, it.range.first) } ?: line
+
     fun turnOf(s: String): Turn {
-        val t = s.lowercase(Locale.ROOT)
-        return when {
-            listOf("arrive", "destination", "tiba", "tujuan").any { it in t } -> Turn.ARRIVE
-            listOf("u-turn", "putar balik", "make a u").any { it in t } -> Turn.UTURN
-            listOf("roundabout", "bundaran").any { it in t } -> Turn.ROUNDABOUT
-            listOf("slight left", "keep left", "sedikit ke kiri", "agak ke kiri", "tetap di kiri", "tetap di jalur kiri").any { it in t } -> Turn.SLIGHT_LEFT
-            listOf("slight right", "keep right", "sedikit ke kanan", "agak ke kanan", "tetap di kanan", "tetap di jalur kanan").any { it in t } -> Turn.SLIGHT_RIGHT
-            listOf("left", "kiri").any { it in t } -> Turn.LEFT
-            listOf("right", "kanan").any { it in t } -> Turn.RIGHT
-            listOf("straight", "continue", "head", "lurus", "terus", "lanjutkan").any { it in t } -> Turn.STRAIGHT
-            else -> Turn.NONE
+        var best: Turn = Turn.NONE; var bestAt = Int.MAX_VALUE; var bestLen = 0
+        for (part in s.split("  ")) {                           // title and text, each cut before its street name
+            val m = manoeuvre(part)
+            for ((turn, word, re) in turnRegex) {
+                val at = re.find(m)?.range?.first ?: continue
+                val pos = s.indexOf(part) + at
+                if (pos < bestAt || (pos == bestAt && word.length > bestLen)) { best = turn; bestAt = pos; bestLen = word.length }
+            }
         }
+        return best
     }
 
     /** title / text / subText as Google Maps puts them in its navigation notification. */

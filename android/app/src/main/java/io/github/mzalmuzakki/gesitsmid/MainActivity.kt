@@ -241,6 +241,7 @@ class MainActivity : Activity() {
     private lateinit var connSub: TextView
     private lateinit var connBtn: android.widget.Button
     private lateinit var resumeBox: LinearLayout
+    private lateinit var resumeText: TextView
     private lateinit var alertCard: LinearLayout
     private lateinit var alertText: TextView
     private val live = HashMap<String, TextView>()
@@ -268,11 +269,11 @@ class MainActivity : Activity() {
         Ui.secondary(this, r, "Change bike", 1f) { chooseBikeDialog() }
         // After a hang the MID only gets questions until you say its display works again (look at it first).
         resumeBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }.also { cc.addView(it) }
-        Ui.text(this, resumeBox, "After the MID stopped answering, the app only asks questions: no text, clock or pictures. Check the MID: if speed, turn signals and clock work normally, tap below.", 12f, Ui.AMBER)
+        resumeText = Ui.text(this, resumeBox, "After the MID stopped answering, the app only asks questions: no text, clock or pictures. Check the MID: if speed, turn signals and clock work normally, tap below.", 12f, Ui.AMBER)
         Ui.secondary(this, resumeBox, "The MID works normally again") {
             AlertDialog.Builder(this).setTitle(L.t("Send text and clock again?"))
                 .setMessage(L.t("Only if the MID's speed and turn signals work normally. If it ever freezes again, stop safely and switch the bike off and on."))
-                .setPositiveButton(L.t("Yes, it works")) { _, _ -> Bike.allowWrites(this); Bike.dataFrozen = false }
+                .setPositiveButton(L.t("Yes, it works")) { _, _ -> Bike.allowWrites(this); Bike.unfreeze() }
                 .setNegativeButton(L.t("Cancel"), null).show()
         }
 
@@ -314,18 +315,22 @@ class MainActivity : Activity() {
         if (!::connTitle.isInitialized) return
         val name = settings.deviceName?.let { "$it · ${if (settings.linkType == "ble") "Bluetooth LE" else "Bluetooth Classic"}" } ?: L.t("No bike chosen yet")
         val hung = Bike.midHungSince > 0L
+        val frozen = Bike.dataFrozen                   // the MID answers, but its values don't change: show none of them
         connTitle.text = when {
             hung && Bike.hangFromEarlier -> "⚠ " + L.t("The MID wasn't answering last time")
             hung -> "⚠ " + L.t("MID not answering")
+            frozen -> "⚠ " + L.t("MID values look frozen")
             Bike.connected -> "● " + L.t("Connected")
             Bike.running -> "○ " + L.t("Connecting…")
             else -> "○ " + L.t("Not connected")
         }
-        connTitle.setTextColor(if (hung) Ui.RED else if (Bike.connected) Ui.GREEN else if (Bike.running) Ui.AMBER else Ui.MUTED)
+        connTitle.setTextColor(if (hung || frozen) Ui.RED else if (Bike.connected) Ui.GREEN else if (Bike.running) Ui.AMBER else Ui.MUTED)
         connSub.text = name + (Bike.telemetry.raw["VER"]?.let { "\n" + L.t("MID version") + " $it" } ?: "") +
             (if (Bike.running && !Bike.connected) "\n" + L.status(Bike.status) else "")
         connBtn.text = L.t(if (Bike.running) "Disconnect" else "Connect")
         resumeBox.visibility = if (Bike.writesBlocked && !hung) View.VISIBLE else View.GONE
+        resumeText.text = L.t(if (frozen) "The MID's values looked frozen, so the app shows none of them and only asks questions: no text, clock or pictures. Check the MID: if speed, turn signals and clock work normally, tap below."
+            else "After the MID stopped answering, the app only asks questions: no text, clock or pictures. Check the MID: if speed, turn signals and clock work normally, tap below.")
 
         val t = Bike.telemetry
         val alerts = mutableListOf<String>()
@@ -350,15 +355,15 @@ class MainActivity : Activity() {
                 settings.chargeTarget, hm(mins), hm(full))
         }
 
-        fun v(k: String) = t.raw[k] ?: "--"
+        fun v(k: String) = if (frozen) "--" else t.raw[k] ?: "--"
         live["SOC"]!!.text = v("SOC") + "%"
-        live["RANGE"]!!.text = (Bike.rangeKm()?.let { String.format(Locale.US, "%.0f", it) } ?: "--") + " km"
-        val p = t.powerW
+        live["RANGE"]!!.text = ((if (frozen) null else Bike.rangeKm())?.let { String.format(Locale.US, "%.0f", it) } ?: "--") + " km"
+        val p = if (frozen) null else t.powerW
         live["PWR"]!!.text = (p?.let { String.format(Locale.US, "%.1f", it / 1000f) } ?: "--") + " kW"
         live["PWR"]!!.setTextColor(if (p != null && p < 0) Ui.GREEN else Ui.TEXT)
-        live["SPD"]!!.text = (if (Bike.connected && t.fresh("SPD", 5000)) v("SPD") else "--") + " km/h"
-        live["MODE"]!!.text = t.mode ?: "--"
-        live["GEAR"]!!.text = when (t.gear) { "P" -> L.t("Park"); "D" -> L.t("Drive"); else -> "--" }
+        live["SPD"]!!.text = (if (Bike.valuesLive() && t.fresh("SPD", 5000)) v("SPD") else "--") + " km/h"
+        live["MODE"]!!.text = (if (frozen) null else t.mode) ?: "--"
+        live["GEAR"]!!.text = when (if (frozen) null else t.gear) { "P" -> L.t("Park"); "D" -> L.t("Drive"); else -> "--" }
         live["HEALTH"]!!.text = v("SOH") + "%"
         live["TBAT"]!!.text = v("TBAT"); live["TMOT"]!!.text = v("TMOT"); live["TINV"]!!.text = v("TINV")
         tripText.text = synchronized(Bike.trip) {

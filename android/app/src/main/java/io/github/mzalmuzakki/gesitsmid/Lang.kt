@@ -73,6 +73,10 @@ object L {
         "After the MID stopped answering, the app only asks questions: no text, clock or pictures. Check the MID: if speed, turn signals and clock work normally, tap below." to
             "Setelah MID berhenti merespons, aplikasi hanya bertanya: tanpa teks, jam, atau gambar. Periksa MID: jika kecepatan, lampu sein, dan jam normal, ketuk di bawah.",
         "The MID works normally again" to "MID sudah normal lagi",
+        "MID values look frozen" to "Nilai MID tampak macet",
+        "MID values look frozen - stop safely, switch the bike off and on" to "Nilai MID tampak macet - berhenti dengan aman, matikan lalu nyalakan motor",
+        "The MID's values looked frozen, so the app shows none of them and only asks questions: no text, clock or pictures. Check the MID: if speed, turn signals and clock work normally, tap below." to
+            "Nilai MID tampak macet, jadi aplikasi tidak menampilkannya dan hanya bertanya: tanpa teks, jam, atau gambar. Periksa MID: jika kecepatan, lampu sein, dan jam normal, ketuk di bawah.",
         "Send text and clock again?" to "Kirim teks dan jam lagi?",
         "Only if the MID's speed and turn signals work normally. If it ever freezes again, stop safely and switch the bike off and on." to
             "Hanya jika kecepatan dan lampu sein MID normal. Jika macet lagi, berhenti dengan aman lalu matikan dan nyalakan motor.",

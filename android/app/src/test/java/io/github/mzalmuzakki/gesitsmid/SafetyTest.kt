@@ -57,11 +57,14 @@ class SafetyTest {
         assertEquals(Liveness.Verdict.WAIT, l.verdict(20_000, lastMovingAt = 11_000))
         assertEquals(Liveness.Verdict.HUNG, l.verdict(25_001, lastMovingAt = 11_000))
         assertTrue(l.movingWhenItStopped(lastMovingAt = 11_000))
-        // stopped 5 s before the answers stopped (pulled up, switched off): not moving
-        assertFalse(l.movingWhenItStopped(lastMovingAt = 5_000))
-        assertEquals(Liveness.Verdict.WAIT, l.verdict(30_000, lastMovingAt = 5_000))
-        assertEquals(Liveness.Verdict.HUNG, l.verdict(40_001, lastMovingAt = 5_000))   // link still up after 30 s: on
+        // stopped 6 s before the answers stopped (pulled up, switched off): not moving
+        assertFalse(l.movingWhenItStopped(lastMovingAt = 4_000))
+        assertEquals(Liveness.Verdict.WAIT, l.verdict(30_000, lastMovingAt = 4_000))
+        assertEquals(Liveness.Verdict.HUNG, l.verdict(40_001, lastMovingAt = 4_000))   // link still up after 30 s: on
         assertEquals(Liveness.Verdict.WAIT, l.verdict(39_000, lastMovingAt = 0))
+        // one speed answer lost just before the freeze (the moving one came ~4 s before the last answer): still moving
+        assertTrue(l.movingWhenItStopped(lastMovingAt = 6_000))
+        assertEquals(Liveness.Verdict.HUNG, l.verdict(25_001, lastMovingAt = 6_000))
     }
 
     @Test fun onlyKnownQuestions() {

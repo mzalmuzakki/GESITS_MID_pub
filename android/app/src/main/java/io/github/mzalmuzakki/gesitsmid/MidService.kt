@@ -47,6 +47,15 @@ object Bike {
     @Volatile var hangFromEarlier = false
     /** The MID answers but its values look frozen (speed shown, odometer not moving). */
     @Volatile var dataFrozen = false
+    /**
+     * The odometer when the values were judged frozen. Kept across reconnects: the flag clears only when the
+     * odometer has really moved past it (or you confirm on Home), never just because a new link started.
+     */
+    @Volatile var frozenOdo = Float.NaN
+    fun freeze(odo: Float) { frozenOdo = odo; dataFrozen = true }
+    fun unfreeze() { dataFrozen = false; frozenOdo = Float.NaN }
+    /** Values may be shown as live: connected and not frozen. */
+    fun valuesLive() = connected && !dataFrozen
     @Volatile var workersAlive = 0
     /** A different bike was chosen: the next worker starts the answer checks afresh. */
     @Volatile var pendingReset = false
@@ -304,6 +313,7 @@ class MidService : Service() {
     /** What the notification says: the real state, never a stale "connected". */
     private fun notifText(): String {
         if (Bike.midHungSince > 0L) return L.t("MID not answering - stop safely, switch the bike off and on")
+        if (Bike.dataFrozen) return L.t("MID values look frozen - stop safely, switch the bike off and on")
         if (!Bike.connected) return L.t(if (Bike.running) "Not connected - retrying" else "Stopped")
         val t = Bike.telemetry
         return L.t("Connected") + (t.f("SOC")?.let { "  ·  ${it.toInt()}%" } ?: "") +
@@ -548,6 +558,7 @@ class MidService : Service() {
             Bike.loadSafety(this)
             if (Bike.pendingReset) {                  // a different bike: fresh answer checks and current sign
                 Bike.telemetry.resetAll(); Bike.currentSign.load("1;false"); s.currentSign = null; Bike.pendingReset = false
+                Bike.unfreeze()                         // the old bike's frozen odometer means nothing for this one
             }
             Bike.currentSign.load(s.currentSign); Bike.telemetry.ibatSign = Bike.currentSign.sign
             // Battery size from rides recorded earlier, if the energy model has nothing yet.
@@ -639,6 +650,7 @@ class MidService : Service() {
 
                     // Quiet modes: never answered on this link, or judged hung. Only the odd question goes out.
                     if (!answeredHere || Bike.midHungSince > 0L) {
+                        fastSince = 0L; odoChangedAt = now      // the frozen-values check starts afresh afterwards
                         val every = if (Bike.midHungSince > 0L) 15_000L else 3_000L
                         if (now - lastProbe >= every) { lastProbe = now; send(Mid.VERSION_QUERY) }
                         val limit = if (suspectHang) Liveness.MOVING_HANG_MS else Liveness.STOPPED_HANG_MS
@@ -656,6 +668,7 @@ class MidService : Service() {
                     }
                     if (live.silent(now)) {
                         // It answered on this link, then went silent: stop asking (one question every 3 s).
+                        fastSince = 0L; odoChangedAt = now
                         if (Bike.connected) { Bike.connected = false; Bike.telemetry.clearLive(); BikeWidget.update(this) }
                         when (live.verdict(now, lastMovingAt)) {
                             Liveness.Verdict.HUNG -> {
@@ -707,14 +720,19 @@ class MidService : Service() {
                         tm.expire(now) { k -> if (k in Mid.POLL_KEYS) 3 * pollPeriod(k, slow) + 5000L else Long.MAX_VALUE }
                         val spdNow = if (tm.fresh("SPD", 5000L, now)) tm.f("SPD") else null
                         // MID answering but frozen? Speed of 15 km/h or more for 90 s with the odometer not moving.
-                        val odoNow = tm.f("ODO")
-                        if (odoNow != null && odoNow != lastOdoSeen) {
-                            if (Bike.dataFrozen) { Bike.dataFrozen = false; Bike.log("Odometer moving again (writes stay off until you confirm on Home)") }
-                            lastOdoSeen = odoNow; odoChangedAt = now
+                        // Only a fresh odometer answer counts (asked every 5 s): garbled, rejected answers are no proof
+                        // that it stopped moving.
+                        val odoNow = if (tm.fresh("ODO", 15_000L, now)) tm.f("ODO") else null
+                        if (odoNow == null) { fastSince = 0L; odoChangedAt = now }
+                        else if (odoNow != lastOdoSeen) { lastOdoSeen = odoNow; odoChangedAt = now }
+                        // Frozen ends only when the odometer has moved past the value it was frozen at (a new link
+                        // alone proves nothing). Writes stay off until you confirm on Home.
+                        if (Bike.dataFrozen && odoNow != null && !Bike.frozenOdo.isNaN() && odoNow > Bike.frozenOdo + 0.15f) {   // moved 0.2 km or more
+                            Bike.unfreeze(); Bike.log("Odometer moving again (writes stay off until you confirm on Home)"); refreshNotif()
                         }
-                        if ((spdNow ?: 0f) >= 15f) { if (fastSince == 0L) fastSince = now } else fastSince = 0L
-                        if (!Bike.dataFrozen && !lastOdoSeen.isNaN() && fastSince > 0L && now - fastSince > 90_000L && now - odoChangedAt > 90_000L) {
-                            Bike.dataFrozen = true; Bike.blockWrites(this); tm.clearLive()
+                        if (odoNow != null && (spdNow ?: 0f) >= 15f) { if (fastSince == 0L) fastSince = now } else fastSince = 0L
+                        if (!Bike.dataFrozen && odoNow != null && fastSince > 0L && now - fastSince > 90_000L && now - odoChangedAt > 90_000L) {
+                            Bike.freeze(odoNow); Bike.blockWrites(this); tm.clearLive(); refreshNotif(); BikeWidget.update(this)
                             Alerts.notify(this, L.t("The MID's values look frozen (speed shown but the odometer doesn't move). When it is safe, stop and switch the bike off and on."))
                             Bike.log("MID values look frozen - writes stopped")
                         }

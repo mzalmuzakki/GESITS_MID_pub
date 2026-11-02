@@ -78,6 +78,7 @@ class Liveness {
         const val FIRST_ANSWER_MS = 20_000L         // after connecting
         const val MOVING_HANG_MS = 15_000L          // moving when it went silent, link still up: hung
         const val STOPPED_HANG_MS = 30_000L         // stopped: Bluetooth should drop well before this when switched off
+        const val MOVING_WINDOW_MS = 5_000L         // > 2 speed questions (every 2 s): one lost answer doesn't matter
     }
 
     var connectedAt = 0L; private set
@@ -122,8 +123,9 @@ class Liveness {
     /**
      * The bike was moving when the MID's answers stopped. [lastMovingAt] is when the latest speed answer arrived,
      * if that answer was above 3 km/h (0 once a lower speed has come in). Moving = that answer came in at most
-     * 2.5 s before the last answer of all.
+     * [MOVING_WINDOW_MS] before the last answer of all. Speed is asked every 2 s, so 5 s still counts as moving
+     * when one speed answer was lost or garbled just before the MID froze.
      */
     fun movingWhenItStopped(lastMovingAt: Long): Boolean =
-        lastMovingAt > 0L && lastAnswerAt > 0L && lastMovingAt >= lastAnswerAt - 2_500L
+        lastMovingAt > 0L && lastAnswerAt > 0L && lastMovingAt >= lastAnswerAt - MOVING_WINDOW_MS
 }

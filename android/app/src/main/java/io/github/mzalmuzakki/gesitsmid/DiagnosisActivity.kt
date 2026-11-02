@@ -83,8 +83,9 @@ class DiagnosisActivity : Activity() {
             } + String.format(Locale.US, "\n\n(raw ERR=%04X)", mask)
         }
         errors.setTextColor(if (mask != null && mask != 0) Color.rgb(235, 60, 60) else Color.WHITE)
-        fun v(k: String, u: String) = t.raw[k]?.let { "$it$u" } ?: "--"
-        values.text = L.t("Speed") + " ${v("SPD", " km/h")}\n" +
+        // frozen values (the MID answers but nothing changes) are not shown as if they were live
+        fun v(k: String, u: String) = (if (Bike.dataFrozen) null else t.raw[k])?.let { "$it$u" } ?: "--"
+        values.text = (if (Bike.dataFrozen) "⚠ " + L.t("MID values look frozen") + "\n" else "") + L.t("Speed") + " ${v("SPD", " km/h")}\n" +
             L.t("Battery") + " ${v("SOC", "%")}  " + L.t("health") + " ${v("SOH", "%")}  ${v("VBAT", " V")}  ${v("IBAT", " A")}\n" +
             L.t("Temps") + "  " + L.t("battery") + " ${v("TBAT", "")}  " + L.t("motor") + " ${v("TMOT", "")}  " + L.t("inverter") + " ${v("TINV", "")} °C"
 
