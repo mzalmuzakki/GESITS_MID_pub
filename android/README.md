@@ -28,14 +28,13 @@ One screen with four tabs at the bottom:
   temperatures and errors.
 * Sends a picture to the MID map area every few seconds: **your own live dashboard** (same design as
   `docs/img/custom_screen.png`) or **a picture you choose**.
-* **Adaptive range in the MID text line:** range = battery % × battery capacity ÷ your consumption, all
-  learned by the app. Consumption (Wh/km) comes from voltage × current over your last 15 km, so it adapts
-  within the first kilometre. Battery capacity is learned from energy against battery %, while riding
-  and while charging, so a bigger custom battery is recognised by itself (usually after one charge).
-  It starts at the original G1 battery (~1.5 kWh, ~30 Wh/km, ~50 km). It's shown as "RANGE 112 km" in
-  the MID's text line, because the MID's own range figure is its own calculation for the original
-  battery: on a G1 it can't be replaced over Bluetooth (`AT+TRIP` is overwritten instantly). The
-  range card shows both. **Forget learned range** starts over (e.g. after a battery change).
+* **Adaptive range in the MID text line:** range = battery % × km per 1%, measured from the odometer
+  and battery % over your last 40% of riding. It starts at the original G1 battery's 0.5 km per 1%
+  (~50 km) and settles after about 10% of battery ridden, so a bigger battery is picked up within a ride.
+  The Range card also shows energy figures (battery kWh, Wh/km). The range is shown as "RANGE 112 km"
+  in the MID's text line, because the MID's own range figure is its own calculation for the original
+  battery and can't be replaced over Bluetooth on a G1. The MID draws the text line without erasing, so
+  a new text is sent right after a fresh picture. **Forget learned range** starts over.
 * **Clock sync:** sets the MID clock from your phone on connect, at every minute change, and every 30 s.
 * Optionally shows your own text line (rotating, 20 characters per step).
 * **Stats:** rides are recorded automatically (start when moving, end after 5 min stopped). Shows

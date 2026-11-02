@@ -461,7 +461,12 @@ class MainActivity : Activity() {
             Bike.navFresh() -> Bike.nav!!.let { "→ ${it.distance ?: ""} ${it.street}" }
             else -> "✓ " + L.t("Ready: start navigation in Google Maps")
         }
-        val desc = synchronized(Bike.range) { Bike.energy.describe(L.indo) }
+        val desc = synchronized(Bike.range) {
+            val r = Bike.range
+            String.format(Locale.US, if (L.indo) "%.2f km per 1%% baterai (%s: %.1f km dari %.0f%% baterai)" else "%.2f km per 1%% battery (%s: %.1f km over %.0f%% of battery)",
+                r.kmPerPercent, if (r.fullyLearned) L.t("measured") else L.t("learning"), r.learnedKm, r.learnedPercent) +
+                "\n" + Bike.energy.describe(L.indo)
+        }
         rangeInfo.text = desc + (Bike.rangeKm()?.let { String.format(Locale.US, if (L.indo) " → %.0f km sekarang" else " → %.0f km now", it) } ?: "") + "\n" +
             (Bike.telemetry.f("RANGE")?.let { String.format(Locale.US, L.t("The MID's own range figure: %.0f km (it assumes the original battery and can't be changed over Bluetooth)."), it) }
                 ?: L.t("The MID's own range figure assumes the original battery and can't be changed over Bluetooth."))

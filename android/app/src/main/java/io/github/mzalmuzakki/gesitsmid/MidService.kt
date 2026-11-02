@@ -36,7 +36,7 @@ object Bike {
     val outbox = LinkedBlockingQueue<String>()
     val log = ArrayDeque<String>()
     /** Adaptive range learner; guard access with synchronized(range). */
-    val range = RangeEstimator()
+    val range = RangeEstimator(windowPercent = 40f, priorWeightPercent = 5f, fadePercent = 10f)
     @Volatile var rangeLoaded = false
 
     /** Energy-based adaptive range (battery capacity x your consumption); guarded by synchronized(range) too. */
@@ -46,9 +46,15 @@ object Bike {
         if (!rangeLoaded) { range.load(s.rangeState); energy.load(s.energyState); rangeLoaded = true }
         range.priorKmPerPercent = s.kmPerPercent
     }
-    /** Range now: from energy (normal case); the older km-per-% learner only if no power data has ever been seen. */
+    /**
+     * Range now = battery % x km per 1 % measured from your own recent riding (odometer and battery % only,
+     * so it doesn't depend on the battery's current reading). The energy model is only used while nothing
+     * has been ridden yet but it has already learned battery size and consumption (e.g. from charging).
+     */
     fun rangeKm(): Float? = Bike.telemetry.f("SOC")?.let { soc ->
-        synchronized(range) { if (energy.hasData || range.learnedPercent <= 0f) energy.rangeKm(soc) else range.rangeKm(soc) }
+        synchronized(range) {
+            if (range.learnedPercent < 1f && energy.capacityLearned && energy.consumptionLearned) energy.rangeKm(soc) else range.rangeKm(soc)
+        }
     }
 
     /** Last ~10 minutes of per-second samples for the Diagnosis charts; guard with synchronized(samples). */
@@ -423,7 +429,7 @@ class MidService : Service() {
                 Bike.energy.seedCapacity(r.sumOf { it.energyWh.toDouble() }.toFloat(), r.sumOf { (it.socStart - it.socEnd).toDouble() }.toFloat())
             }
         }
-        var tripAfterFrame = 0L; var lastNavText = ""
+        var tripAfterFrame = 0L; var lastNavText = ""; var pendingNav: String? = null; var pendingNavAt = 0L
         var lastWidget = 0L; var lastNotif = 0L; var lastMapsCheck = 0L; var lastSpeedMsg = 0L; var navPart = 0
         while (Bike.running) {
             try {
@@ -561,37 +567,31 @@ class MidService : Service() {
                     Bike.rangeKm()?.let { send(Mid.trip(it)) }
                     tripAfterFrame = 0L
                 }
+                // Text line. The MID draws it over the picture without erasing the old characters, so a changed
+                // text lands on top of the previous one ("range 5/46 km"). Hence: texts that change rarely, and each
+                // change goes out right after a fresh picture (which wipes the area); without pictures, a blank first.
                 val nav = if (s.navOn && Bike.navFresh(now)) Bike.nav else null
-                if (Bike.speedWarn.active) {
-                    if (now - lastSpeedMsg >= 2000) {                       // speed warning first
-                        send(Mid.nav("! ${tm.f("SPD")?.toInt() ?: 0} > ${s.speedLimit} km/h"))
-                        lastSpeedMsg = now; lastNav = 0L
+                val own = Mid.splitNav(s.navText)
+                val line: String? = when {
+                    Bike.speedWarn.active -> "! " + L.t("SLOW DOWN") + " ${s.speedLimit}"
+                    nav != null -> (navTurnWord(nav.turn) + " " + nav.street).trim().take(Mid.NAV_MAX)   // distance: in the picture
+                    own.size > 1 -> null                                                     // your own long text rotates
+                    own.size == 1 -> own[0]
+                    s.rangeLine -> Bike.rangeKm()?.let { (if (L.indo) "JARAK " else "RANGE ") + Math.round(it) + " km" }
+                        ?: if (s.navDate) Mid.dateText() else null
+                    s.navDate -> Mid.dateText()
+                    else -> null
+                }
+                if (line == null && own.size > 1) {
+                    if (now - lastNav >= 5000) { navIdx %= own.size; send(Mid.nav(own[navIdx++])); lastNav = now; lastNavText = "" }
+                } else if (line != null && line != lastNavText) {
+                    if (s.screenMode != "off") {
+                        if (pendingNav != line) { pendingNav = line; pendingNavAt = now; lastFrameKey = ""; lastFrame = 0L }
+                    } else {
+                        send(Mid.nav("")); send(Mid.nav(line)); lastNavText = line; lastNav = now
                     }
-                } else if (nav != null) {
-                    if (now - lastNav >= 3000) {                            // directions: turn+distance, then street
-                        val first = (navTurnWord(nav.turn) + " " + (nav.distance ?: "")).trim()
-                        val parts = listOf(first) + Mid.splitNav(nav.street).take(1)
-                        navPart %= parts.size
-                        send(Mid.nav(parts[navPart++])); lastNav = now
-                    }
-                } else {
-                    // Your own text; otherwise the app's adaptive range (the MID's own range figure can't be
-                    // replaced on a G1) and/or the date, taking turns every 5 s.
-                    val parts = Mid.splitNav(s.navText).ifEmpty {
-                        listOfNotNull(
-                            if (s.rangeLine) Bike.rangeKm()?.let { (if (L.indo) "JARAK " else "RANGE ") + Math.round(it) + " km" } else null,
-                            if (s.navDate) Mid.dateText() else null,
-                        )
-                    }
-                    if (parts.isNotEmpty() && now - lastNav >= 5000) {
-                        navIdx %= parts.size
-                        val text = parts[navIdx]
-                        // one fixed line is re-sent only when it changes (or once a minute)
-                        if (parts.size > 1 || text != lastNavText || now - lastNav >= 60_000) {
-                            send(Mid.nav(text)); lastNavText = text; lastNav = now
-                        }
-                        navIdx++
-                    }
+                } else if (line != null && now - lastNav >= 60_000) {
+                    send(Mid.nav(line)); lastNav = now                                    // same text: safe to repeat
                 }
                 val mapsSent = Bike.sentAt["MAPS"] ?: 0L
                 val mapsAck = Bike.ackAt["MAPS"] ?: 0L
@@ -605,12 +605,14 @@ class MidService : Service() {
                     val b64 = picturePayload(s, now)
                     if (b64 != null) {
                         send(Mid.maps(b64))
+                        pendingNav?.let { send(Mid.nav(it)); lastNavText = it; lastNav = now; pendingNav = null }
                         if (rangeReady) { Bike.rangeKm()?.let { send(Mid.trip(it)) }; tripAfterFrame = System.currentTimeMillis() + 400 }
                         Bike.lastFrameInfo = (if (L.indo) "Gambar terkirim: " else "Picture sent: ") + "${b64.length} " + (if (L.indo) "karakter dalam " else "chars in ") + "${System.currentTimeMillis() - t0} ms"
                         lastFrameSent = now
                     }
                     lastFrame = System.currentTimeMillis()
                 }
+                pendingNav?.let { if (now - pendingNavAt > 5000) { send(Mid.nav("")); send(Mid.nav(it)); lastNavText = it; lastNav = now; pendingNav = null } }
 
                 // Sleep until the next thing is due; a command from the UI wakes us early.
                 val nextDue = minOf(nextPoll, lastLearn + 1000, if (rangeReady) minOf(lastTripSent + TRIP_EVERY_MS, if (tripAfterFrame > 0L) tripAfterFrame else Long.MAX_VALUE) else Long.MAX_VALUE,

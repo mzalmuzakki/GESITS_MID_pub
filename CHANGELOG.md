@@ -5,6 +5,16 @@ Versions are **v\<major\>.\<xx\>.\<yy\>** (see `android/version.properties`):
 * **xx**: feature milestone (new or changed things you notice); resets yy
 * **yy**: fixes and polish only
 
+## v0.15.00
+* **Range = battery % × km per 1% from your own riding** (odometer and battery % only), as before v0.13,
+  but settling after ~10% of battery instead of 20% (last 40% of riding counts). The energy figures
+  (battery kWh, Wh/km) stay on the Range card for information; they depend on the battery current
+  reading, which custom batteries may report differently.
+* **No more overlapping text on the MID** ("range 5/46 km"): the MID draws the text line over the
+  picture without erasing, so the text now changes rarely, and each change is sent right after a fresh
+  picture. The range line no longer alternates with the date; directions show the turn and street
+  (the distance stays in the picture); the speed warning is a fixed "! SLOW DOWN 70".
+
 ## v0.14.03
 **Battery current sign is learned per bike.** On a G1 with a custom battery the current drawn is
 reported negative (rides saved as "-44 Wh", "charging started" while riding, -81 W while parked).

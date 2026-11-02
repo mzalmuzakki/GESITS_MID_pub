@@ -85,5 +85,13 @@ class RangeTest {
         assertFalse(r.update(1000.1f, 2f, 1000))     // 96 -> 2 % in a second: a bad reading, not riding
         assertEquals(0f, r.learnedPercent)
     }
+
+    @Test fun appSettingsLearnADoubleBatteryWithinTenPercent() {
+        val r = RangeEstimator(priorKmPerPercent = 0.5f, windowPercent = 40f, priorWeightPercent = 5f, fadePercent = 10f)
+        assertEquals(46f, r.rangeKm(92f), 0.5f)                 // before riding: the original battery's 0.5 km per 1 %
+        ride(r, 1000f, 100, 12, 1.1f, 0L)                         // 12 % at 1.1 km per 1 %
+        assertTrue(r.fullyLearned)
+        assertTrue(abs(r.rangeKm(88f) - 97f) < 8f, "range ${r.rangeKm(88f)}")
+    }
 }
 

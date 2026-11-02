@@ -104,6 +104,8 @@ too. Initial list: `AT+TIME="HHmm"`, `AT+VER?`, `AT+MODE?`, `AT+MAPS="<logo>"`,
 re-added after a few seconds to keep polling.
 
 ### AT+NAV text rules ✅
+* Seen on a G1: the text is drawn over the picture **without erasing**, so a changed digit lands on
+  the old one ("range 5/46 km"). A fresh `AT+MAPS` picture wipes the area; send the new text right after it.
 * ASCII only. B strips accents and replaces other characters with spaces.
 * Max 20 characters. Longer text is split at the space nearest the middle into two parts. B rotates
   between items every 2–5 s.
