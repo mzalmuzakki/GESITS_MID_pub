@@ -87,10 +87,13 @@ class MainActivity : Activity() {
      * Connect to the saved bike when the app opens. Never asks for permissions by itself (that happens when
      * you tap Connect the first time); if Bluetooth is off, Android's own "turn on Bluetooth?" prompt is shown.
      */
+    private var autoConnectBt = false
+
     private fun autoConnect() {
         if (!settings.autoConnect || Bike.running || settings.address == null || !hasPermissions()) return
         val adapter = getSystemService(BluetoothManager::class.java)?.adapter ?: return
         if (adapter.isEnabled) { MidService.start(this); return }
+        autoConnectBt = true
         try { startActivityForResult(Intent(android.bluetooth.BluetoothAdapter.ACTION_REQUEST_ENABLE), enableBt) }
         catch (_: Exception) { toast("Turn Bluetooth on to connect to the bike") }
     }
@@ -224,6 +227,7 @@ class MainActivity : Activity() {
         settings.address = d.address
         settings.deviceName = name ?: d.name ?: d.address
         settings.linkType = type
+        Bike.telemetry.resetAll(); Bike.midHungSince = 0L; Bike.hangWarned = false   // a new bike: expect nothing
         pages.remove("home"); show("home")
         if (Bike.running) { MidService.stop(this); ui.postDelayed({ MidService.start(this, tap = true) }, 800) } else MidService.start(this, tap = true)
     }
@@ -340,7 +344,7 @@ class MainActivity : Activity() {
         val p = t.powerW
         live["PWR"]!!.text = (p?.let { String.format(Locale.US, "%.1f", it / 1000f) } ?: "--") + " kW"
         live["PWR"]!!.setTextColor(if (p != null && p < 0) Ui.GREEN else Ui.TEXT)
-        live["SPD"]!!.text = (if (Bike.connected && t.fresh("SPD", 3000)) v("SPD") else "--") + " km/h"
+        live["SPD"]!!.text = (if (Bike.connected && t.fresh("SPD", 5000)) v("SPD") else "--") + " km/h"
         live["MODE"]!!.text = t.mode ?: "--"
         live["GEAR"]!!.text = when (t.gear) { "P" -> L.t("Park"); "D" -> L.t("Drive"); else -> "--" }
         live["HEALTH"]!!.text = v("SOH") + "%"
@@ -428,7 +432,7 @@ class MainActivity : Activity() {
         }
 
         val cc = Ui.card(this, col, "CLOCK")
-        Ui.switchRow(this, cc, "Set the MID clock from this phone", "On connect and every minute", settings.syncTime) { settings.syncTime = it }
+        Ui.switchRow(this, cc, "Set the MID clock from this phone", "On connect and when the minute changes", settings.syncTime) { settings.syncTime = it }
 
         val adv = Ui.collapsible(this, col, "Advanced: position & calibration")
         Ui.text(this, adv, "Send a grid, photograph the MID, and adjust the margins (pixels of the 320×128 picture) if the MID covers an edge.", 12f, Ui.MUTED)
@@ -576,9 +580,12 @@ class MainActivity : Activity() {
                     // place again after the delete.
                     MidService.stop(this)
                     Thread {
-                        val end = System.currentTimeMillis() + 6000
+                        val end = System.currentTimeMillis() + 30_000
                         while (Bike.workerAlive && System.currentTimeMillis() < end) Thread.sleep(100)
                         runOnUiThread {
+                            Parking.deleteEpoch++
+                            Bike.recorder.reset(); Bike.alarms.reset()
+                            Bike.telemetry.resetAll(); Bike.midHungSince = 0L; Bike.hangWarned = false
                             RideStore.clear(this)
                             getSharedPreferences("settings", MODE_PRIVATE).edit().clear().apply()
                             deleteFile("picture.b64")
@@ -658,7 +665,11 @@ class MainActivity : Activity() {
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode == enableBt) { if (resultCode == RESULT_OK && !Bike.running) MidService.start(this, tap = true); return }
+        if (requestCode == enableBt) {
+            // Bluetooth turned on for auto-connect: no pairing request; after a Connect tap: one is allowed.
+            if (resultCode == RESULT_OK && !Bike.running) MidService.start(this, tap = !autoConnectBt)
+            autoConnectBt = false; return
+        }
         val uri = data?.data ?: return
         if (resultCode != RESULT_OK) return
         when (requestCode) {

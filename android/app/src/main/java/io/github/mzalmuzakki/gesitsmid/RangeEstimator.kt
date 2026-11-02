@@ -49,11 +49,12 @@ class RangeEstimator(
     fun rangeKm(soc: Float): Float = (soc.coerceIn(0f, 100f) * kmPerPercent)
 
     /** Feed every new (ODO, SOC) pair. Returns true if a segment was learned. */
-    fun update(odoKm: Float, socPercent: Float, nowMs: Long = System.currentTimeMillis()): Boolean {
+    /** [charging]: the bike is being charged now (even a 1-2 % top-up must restart the measurement). */
+    fun update(odoKm: Float, socPercent: Float, nowMs: Long = System.currentTimeMillis(), charging: Boolean = false): Boolean {
         if (odoKm.isNaN() || socPercent.isNaN() || socPercent < 0f || socPercent > 100f) return false
         val gap = nowMs - lastSampleMs
         lastSampleMs = nowMs
-        val restart = anchorOdo.isNaN() || anchorSoc.isNaN() ||
+        val restart = anchorOdo.isNaN() || anchorSoc.isNaN() || charging ||
             gap > maxGapMs ||                    // app was off: unknown what happened in between
             odoKm < anchorOdo - 0.05f ||         // odometer went backwards
             socPercent > anchorSoc + 2.5f        // charging (a 1-2 % bounce at a step is not)

@@ -105,4 +105,13 @@ class RangeTest {
         r.update(odo, 79f, t)
         assertTrue(abs(r.kmPerPercent - 1.5f) < 0.2f, "km per 1 % ${r.kmPerPercent}")
     }
+
+    @Test fun aSmallTopUpChargeRestartsTheMeasurement() {
+        val r = RangeEstimator()
+        r.update(1000f, 80f, 0); r.update(1010f, 70f, 600_000)               // 10 km / 10 %
+        r.update(1010f, 72f, 700_000, charging = true)                      // 2 % top-up while connected
+        r.update(1020f, 62f, 1_300_000)                                     // next 10 km / 10 %
+        assertTrue(abs(r.kmPerPercent - 1.0f) < 0.15f, "km per 1 % ${r.kmPerPercent}")
+    }
 }
+

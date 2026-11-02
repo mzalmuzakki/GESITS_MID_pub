@@ -33,6 +33,7 @@ read live data, set the clock, and put your own text and pictures on the stock M
 > The toolkit was run on a real G1 (laptop self-test over a Classic COM port; results in
 > [docs/PROTOCOL.md](docs/PROTOCOL.md)). Use it while parked only. Writes to `ODO` and `RANGE` are refused
 > (`RANGE` made the MID stop answering). `selftest` only asks the known values unless you add `--probe`.
+> `raw` sends whatever you type and `range` sends `AT+TRIP`: don't use the toolkit while testing the app.
 
 > **Testing with a laptop?** Follow [docs/LAPTOP_TEST.md](docs/LAPTOP_TEST.md) (about 15 minutes, read-only first).
 

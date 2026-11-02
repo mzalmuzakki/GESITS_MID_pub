@@ -5,6 +5,53 @@ Versions are **v\<major\>.\<xx\>.\<yy\>** (see `android/version.properties`):
 * **xx**: feature milestone (new or changed things you notice); resets yy
 * **yy**: fixes and polish only
 
+## v0.18.00 - safety, second review
+A second round of two independent QA reviews and an audit (of v0.17.00) found gaps in v0.17's fixes. All fixed:
+* **Hang handling that holds:** a hang is remembered across link drops, reconnects and Disconnect/Connect
+  for as long as the app runs; only a real answer from the MID ends it. While hung, one question every
+  15 s. The warning comes every time a hang happens (v0.17 warned only once). The wake lock is taken
+  again when the MID answers. If the MID comes back by itself on the same connection, only questions are
+  sent until the bike is switched off and on.
+* **Fewer false alarms:** silence counts as a hang only if you were moving in the last 15 s, or if the
+  Bluetooth link is still up after 30 s of silence (switching the ignition off drops it). Stopping and
+  switching off in Drive no longer raises "MID stopped answering". A hang while parked (bench test) is
+  now reported too.
+* **No polling of a MID that doesn't answer:** on a new connection only one question every 3 s goes out
+  until the MID answers (v0.17 asked everything at 2 a second for 20 s). Every link drop is followed by a
+  growing pause (2 s ... 60 s) that only resets once the MID answers.
+* **Lighter traffic:** about 1.6 questions a second riding, 0.9 parked (below the 2-a-second limit, which
+  v0.17 was always at). The clock is set only when the minute changes and the text only when it changes
+  (no 30 s / 60 s re-sends). Writes are checked against "MID answering" right before each one.
+* **Answer checks without loopholes:** a value far from the last one needs the next answer to agree (the
+  "three in a row" rule is gone: three garbled answers no longer count); speed and current are checked too
+  (a garbled 145 km/h no longer becomes a top speed); the expected width is only fixed after two agreeing
+  answers and is relearned after three in a row of a new width (a garbled first answer can no longer lock
+  speed or battery % out for the whole session); an error code counts once it shows up twice in the last 4
+  answers (scattered garble no longer adds up to a fault); the same alarm comes back at most every 10 min;
+  single values that stop coming in are cleared.
+* **Text line with pictures on:** if no picture can be made (none chosen, too big), the waiting text goes out
+  anyway - the text line, speed warning and directions never stick. Rotating own text works with pictures.
+* **Learning:** the battery-current sign needs two agreeing windows to decide and 8 disagreeing windows in a
+  row (several minutes) to flip; a top-up charge while connected restarts the km-per-1% measurement.
+* **Reliability/privacy:** Disconnect aborts a Bluetooth connect in progress; an old worker can no longer
+  close the new one's link; file errors no longer drop the link; "Delete all my data" waits up to 30 s and
+  also clears the ride in progress, alarm state, answer history and a parking location still being fixed;
+  Change bike starts the answer checks afresh; the demo leaves your real trip as it was; turning Bluetooth on
+  for auto-connect can't bring up a pairing request.
+* **Console:** only questions about values the MID was seen to answer (no `AT+RESET?` and the like).
+* **Pipeline:** manual runs publish only from `main`; only APKs signed with the permanent key are
+  published; unit tests run before the key is on the runner; the release is updated in place (no moment
+  without a download); the private-repo sync is pinned and read-only.
+* More tests (55): width relearning, scattered error garble, disagreeing answers, hang verdicts, known
+  questions, alarm repeat, top-up charge, current-sign windows.
+
+**Corrections to v0.17.00's notes:** "a dropped link retries with a growing pause" and "waits until the bike is
+switched off and on (or you tap Connect)" were not true; "the first value after connecting needs a second
+answer" did not apply to speed and current; "only known commands" let any question name through.
+
+**Still true:** tested here with unit tests and in the emulator, not on the bike for long periods. Test parked
+first (in P and, on the centre stand, in D); if the MID ever freezes, stop safely and switch the bike off and on.
+
 ## v0.17.00 - safety, reviewed
 Two independent QA reviews and an audit of v0.16.00 found that several of its safety promises could be
 bypassed (corrected below). Everything they confirmed is fixed:

@@ -44,6 +44,8 @@ class RideRecorder(
     private val minKm: Float = 0.2f,
 ) {
     var active = false; private set
+    /** Forget a ride in progress (used by "Delete all my data"). */
+    fun reset() { active = false }
     private var startMs = 0L
     private var startOdo = Float.NaN
     private var lastOdo = Float.NaN
@@ -168,13 +170,22 @@ class AlarmMonitor(
     var socLow: Float = 20f, var tbatHigh: Float = 45f, var tmotHigh: Float = 85f, var sohLow: Float = 75f,
 ) {
     private val active = HashSet<String>()
+    private val lastFired = HashMap<String, Long>()
+    private var now = 0L
 
+    /** The same alarm comes back at most once every 10 minutes (an error that comes and goes doesn't spam). */
     private fun check(key: String, firing: Boolean, cleared: Boolean, msg: () -> String, out: MutableList<String>) {
-        if (firing && active.add(key)) out += msg()
-        else if (cleared) active.remove(key)
+        if (firing && active.add(key)) {
+            if (now - (lastFired[key] ?: -REPEAT_MS) >= REPEAT_MS) { out += msg(); lastFired[key] = now }
+        } else if (cleared) active.remove(key)
     }
 
-    fun evaluate(soc: Float?, tbat: Float?, tmot: Float?, soh: Float?, errors: List<String>): List<String> {
+    fun reset() { active.clear(); lastFired.clear() }
+
+    companion object { const val REPEAT_MS = 10 * 60_000L }
+
+    fun evaluate(soc: Float?, tbat: Float?, tmot: Float?, soh: Float?, errors: List<String>, nowMs: Long = System.currentTimeMillis()): List<String> {
+        now = nowMs
         val out = mutableListOf<String>()
         soc?.let { check("soc", it < socLow, it >= socLow + 5, { "Battery low: ${it.toInt()}%" }, out) }
         tbat?.let { check("tbat", it > tbatHigh, it <= tbatHigh - 3, { "Battery hot: ${it.toInt()}°C" }, out) }

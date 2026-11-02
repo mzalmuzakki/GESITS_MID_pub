@@ -118,11 +118,12 @@ class CurrentSign {
     private var pos = 0
     private var neg = 0
     private var against = 0                            // windows in a row that disagree with the decided sign
+    private var firstVote = 0                          // the first window's result, until a second one agrees
 
     /**
-     * Feed raw readings about once a second; returns true when the sign changed. The first window of ~40 s
-     * of riding decides; after that it only flips when three windows in a row disagree, so a long downhill
-     * on regen doesn't flip it.
+     * Feed raw readings about once a second; returns true when the sign changed. Two windows of ~40 s of
+     * riding that agree decide it; after that it only flips when 8 windows in a row (several minutes of riding
+     * with the current the "wrong" way) disagree, so a long downhill on regen doesn't flip it.
      */
     fun update(spd: Float?, rawIbat: Float?): Boolean {
         if (spd == null || rawIbat == null || spd < 8f || kotlin.math.abs(rawIbat) < 2f) return false
@@ -131,11 +132,16 @@ class CurrentSign {
         if (n < 40) return false                       // about 40 s of riding with real current
         val s = when { neg >= n * 0.75f -> -1; pos >= n * 0.75f -> 1; else -> 0 }
         pos = 0; neg = 0
-        if (s == 0) return false
-        if (!decided) { decided = true; against = 0; if (s == sign) return false; sign = s; return true }
+        if (s == 0) { against = 0; return false }
+        if (!decided) {
+            if (firstVote != s) { firstVote = s; return false }
+            decided = true; against = 0
+            if (s == sign) return false
+            sign = s; return true
+        }
         if (s == sign) { against = 0; return false }
         against++
-        if (against < 3) return false
+        if (against < 8) return false
         against = 0; sign = s; return true
     }
 

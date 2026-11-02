@@ -75,22 +75,24 @@ class BatteryNavTest {
     @Test fun learnsReversedBatteryCurrent() {
         val c = CurrentSign()
         var changed = false
-        repeat(60) { i -> changed = changed or c.update(35f, if (i % 10 == 0) 8f else -25f) }   // drawn negative, some regen
+        repeat(100) { i -> changed = changed or c.update(35f, if (i % 10 == 0) 8f else -25f) }  // two windows: drawn negative
         assertTrue(changed); assertEquals(-1, c.sign)
         val c2 = CurrentSign(); c2.load(c.save()); assertEquals(-1, c2.sign); assertTrue(c2.decided)
         repeat(60) { assertFalse(CurrentSign().update(0f, -1f)) }      // parked: nothing learned
         val t = Telemetry(); t.ibatSign = -1
-        assertTrue(t.offer("IBAT", "-25")); assertEquals(25f, t.f("IBAT")); assertEquals(-25f, t.ibatRaw)
+        t.offer("IBAT", "-25"); assertTrue(t.offer("IBAT", "-25")); assertEquals(25f, t.f("IBAT")); assertEquals(-25f, t.ibatRaw)
     }
 
     @Test fun aLongRegenDescentDoesNotFlipTheSign() {
         val c = CurrentSign()
-        repeat(40) { c.update(30f, 20f) }                        // first window: normal battery
+        repeat(40) { c.update(30f, 20f) }
+        assertFalse(c.decided)                                   // one window is not enough
+        repeat(40) { c.update(30f, 20f) }                        // second agreeing window: normal battery
         assertTrue(c.decided); assertEquals(1, c.sign)
-        repeat(80) { assertFalse(c.update(40f, -15f)) }          // two windows of regen downhill
+        repeat(7 * 40) { assertFalse(c.update(40f, -15f)) }      // ~5 minutes of regen downhill
         assertEquals(1, c.sign)
-        repeat(40) { c.update(30f, 20f) }                        // riding again: back to normal, counter reset
-        repeat(80) { c.update(40f, -15f) }
+        repeat(40) { c.update(30f, 20f) }                        // riding again: counter reset
+        repeat(7 * 40) { c.update(40f, -15f) }
         assertEquals(1, c.sign)
     }
 }

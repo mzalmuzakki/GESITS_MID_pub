@@ -65,9 +65,10 @@ Request: `AT+SPD?\r\n` → reply `SPD=42\r\n`. Values can be decimals (`VBAT=71.
 B's poll schedule: every 100–200 ms it sends the single most overdue key. Periods: SPD/IBAT 0.5 s ·
 VBAT 1 s · TRT/ODO 2 s · SOC 4 s · ERR/MODE/PARK/CBAT 8 s · TINV/TMOT/TBAT 15 s · SOH 30 s.
 
-This project's Android app (v0.17) is deliberately much slower: at most 2 commands a second in total,
-because a G1's MID (`11-50-09-G1`) froze under heavier traffic. Its periods: SPD 1 s · IBAT 2 s · VBAT,
-SOC, MODE, ODO, PARK 5 s · ERR 10 s · TINV/TMOT/TBAT 15 s · SOH/RANGE 60 s (x3 parked).
+This project's Android app (v0.18) is deliberately much slower: about 1.6 questions a second riding, hard
+limit 2 commands a second in total, because a G1's MID (`11-50-09-G1`) froze under heavier traffic. Its
+periods: SPD 2 s · IBAT, ODO, PARK 5 s · VBAT, SOC, ERR 10 s · MODE 15 s · TINV/TMOT/TBAT 30 s ·
+SOH/RANGE 120 s (x3 parked, except SPD).
 
 ### ERR bits 🟡 (B: "adjust bit positions to the motor firmware"; not official)
 

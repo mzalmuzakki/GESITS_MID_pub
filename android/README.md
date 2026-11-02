@@ -37,7 +37,7 @@ One screen with four tabs at the bottom:
   battery and can't be replaced over Bluetooth on a G1. The MID draws the text line without erasing, so
   a new text goes out after a blank one (or on top of the next picture, if pictures are on).
   **Forget learned range** starts over.
-* **Clock sync:** sets the MID clock from your phone on connect, at every minute change, and every 30 s.
+* **Clock sync:** sets the MID clock from your phone on connect and whenever the minute changes.
 * Optionally shows your own text line (rotating every 5 s, 20 characters per step).
 * **Stats:** rides are recorded automatically (start when moving, end after 5 min stopped). Shows
   totals, a weekly target, 8-week and 7-day charts, records, average Wh/km, regen recovered,
@@ -59,7 +59,7 @@ One screen with four tabs at the bottom:
   only the latest instruction in memory, and has no internet permission to send it anywhere.
 * **Speed warning:** pick 50/60/70/80 km/h; after 3 s over it the MID text line shows "! SLOW DOWN 70"
   (with pictures on, it appears with the next picture, up to 10 s later).
-* **Sent to the MID:** when the picture, clock, text and range were last sent. A G1's MID doesn't
+* **Sent to the MID:** when the picture, clock and text were last sent. A G1's MID doesn't
   confirm writes, so the app can't tell whether it took them: check the MID itself.
 * **Home-screen widget:** battery % and range, updated about once a minute while connected.
 * **Bahasa Indonesia** throughout (follows the phone, or pick it in Tools).
@@ -74,13 +74,23 @@ One screen with four tabs at the bottom:
 On a G1 (MID `11-50-09-G1`) the MID froze after ~5 minutes of heavy traffic (pictures, text, many
 questions): speed and turn signals stuck until the ignition was switched off and on. What the app does:
 * **No pictures by default.** Turning them on (MID tab) is at your own risk.
-* **At most 2 commands a second**, questions and writes together, whatever screen is open.
-* **Only known commands**: questions, the clock, the text line and (if on) pictures. Never the odometer,
-  the MID's range or any other write; the console can only ask questions.
-* **Writes only while the MID answers.** If it stops answering for 8 s while you ride, the app sends
-  nothing more, warns you, and waits until you switch the bike off and on (or tap Connect); it checks
-  once a minute with one question. When parked it assumes the bike was switched off and retries slowly.
-* Live values that are no longer coming in are shown as "--", never as frozen numbers.
+* **Gentle polling:** about 1.6 questions a second while riding and 0.9 parked, with a hard limit of 2
+  commands a second in total (questions and writes together), whatever screen is open. The clock is set
+  when the minute changes and the text line only when it changes; nothing is re-sent "just in case".
+* **Only known commands**: questions about the values the MID was seen to answer, the clock, the text line
+  and (if on) pictures. Never the odometer, the MID's range or any other write; the console can only ask
+  those same questions.
+* **Writes only while the MID answers** (checked right before each one). On a new connection only one
+  question every 3 s goes out until the MID answers.
+* **If the MID stops answering for 8 s:** the app stops asking (one question every 3 s). If you were moving
+  in the last 15 s, or the Bluetooth link is still up after 30 s, it counts as a hang: you get a warning
+  (each time it happens) and the app asks only one question every 15 s - also across reconnects and
+  Disconnect/Connect - until the MID answers again. If the link drops while you're stopped, the bike was
+  most likely switched off: no warning, reconnect attempts with a growing pause (2 s ... 60 s).
+* **After the MID answers again:** on a new connection (bike switched off and on) everything resumes; if it
+  came back by itself on the same connection, the app sticks to questions until the bike is restarted.
+* Live values that stop coming in are cleared (all of them after 8 s of silence, single ones once they are
+  well overdue); the phone speed shows NO DATA when it's more than 5 s old - never a frozen number.
 
 These lower the risk; they can't remove it - the MID's firmware is undocumented. This version has not yet
 been tested on a bike for long periods. **Test it parked first. If the MID ever freezes: stop safely and
@@ -97,10 +107,10 @@ switch the bike off and on.**
 
 ## Battery and memory
 * The background loop sleeps until the next job is due, instead of waking 50 times a second.
-* Values are asked at different rates: speed every 1 s, current every 2 s, voltage and battery % every
-  5 s, temperatures every 15 s, battery health every 60 s; three times slower while parked; never more
-  than 2 commands a second in total.
-* Pictures (if on) are sent only when what they show changes, at most every 10 s.
+* Values are asked at different rates: speed every 2 s, current, odometer and gear every 5 s, voltage,
+  battery % and errors every 10 s, temperatures every 30 s, battery health every 2 minutes; three times
+  slower while parked (except speed); never more than 2 commands a second in total.
+* Pictures (if on) are sent when what they show changes (and once a minute), at most every 10 s.
 * The wake lock is held **only while the MID is answering**. With the bike off, reconnect attempts
   back off from 2 s to 60 s, and the app **stops itself after 60 minutes** without an answer.
 * State is saved every 60 s rather than constantly. There are no libraries, and R8 shrinks the APK.

@@ -21,8 +21,8 @@ concurrency:
 
 jobs:
   build:
-    # Build only in the public repo (free Actions minutes); skipped in the private copy.
-    if: github.repository == 'mzalmuzakki/GESITS_MID_pub'
+    # Build only in the public repo (free Actions minutes) and only from main (also for manual runs).
+    if: github.repository == 'mzalmuzakki/GESITS_MID_pub' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     outputs:
       apk: ${{ steps.apk.outputs.file }}
@@ -47,6 +47,10 @@ jobs:
           path: ~/.android/debug.keystore
           key: android-debug-keystore-v1
 
+      # Unit tests first, before the signing key is anywhere on the runner.
+      - name: Unit tests
+        run: gradle -p android testReleaseUnitTest --no-daemon
+
       # Optional: sign with your own key stored as repository secrets
       # (GESITS_KEYSTORE_B64 = base64 of a .jks file, GESITS_KEYSTORE_PASSWORD).
       - name: Use own signing key if configured
@@ -66,7 +70,7 @@ jobs:
       - name: Build signed APK
         env:
           GESITS_KEYSTORE_PASSWORD: ${{ secrets.GESITS_KEYSTORE_PASSWORD }}
-        run: gradle -p android testReleaseUnitTest assembleRelease --no-daemon
+        run: gradle -p android assembleRelease --no-daemon
 
       - name: Remove the signing key from the runner
         if: always()
@@ -93,7 +97,7 @@ jobs:
   # and measures memory. Only if this passes is the APK published on the "android-latest" release.
   test-and-publish:
     needs: build
-    if: github.repository == 'mzalmuzakki/GESITS_MID_pub'
+    if: github.repository == 'mzalmuzakki/GESITS_MID_pub' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -124,15 +128,28 @@ jobs:
       - name: Publish APK to the "android-latest" release
         env:
           GH_TOKEN: ${{ github.token }}
+          SIGNED: ${{ needs.build.outputs.signed }}
+          APK: ${{ needs.build.outputs.apk }}
         run: |
-          gh release delete android-latest --yes --cleanup-tag || true
-          gh release create android-latest "apk/${{ needs.build.outputs.apk }}" \
-            --prerelease --target "${{ github.sha }}" \
-            --title "Gesits MID ${{ needs.build.outputs.version }} (build ${{ github.run_number }})" \
-            --notes "Built by GitHub Actions from commit ${{ github.sha }}. Unit tests passed; every screen was opened in an Android 14 emulator with demo data without a crash or freeze. NOT tested by this build: the Bluetooth connection and the bike. Test on the bike while parked first; if the MID ever freezes, stop safely and switch the bike off and on.
+          # Riders get only APKs signed with the permanent key (a test-key APK would need an uninstall).
+          case "$SIGNED" in TEST*) echo "::error::Not signed with the permanent key - not publishing"; exit 1;; esac
+          TITLE="Gesits MID ${{ needs.build.outputs.version }} (build ${{ github.run_number }})"
+          NOTES="Built by GitHub Actions from commit ${{ github.sha }}. Unit tests passed; every screen was opened in an Android 14 emulator with demo data without a crash or freeze. NOT tested by this build: the Bluetooth connection and the bike. Test on the bike while parked first; if the MID ever freezes, stop safely and switch the bike off and on.
           SHA-256: ${{ needs.build.outputs.sha }}
           Signed with: ${{ needs.build.outputs.signed }}
           Permissions: Bluetooth, foreground service; notifications (optional); location only for 'Remember where I parked' (and, on Android 8-11, to scan for a Bluetooth LE bike); notification access only for directions. No internet."
+          if gh release view android-latest >/dev/null 2>&1; then
+            # Update in place, so there is never a moment without a downloadable release:
+            # upload the new APK first, then move the tag, update the text, and remove older APKs.
+            gh release upload android-latest "apk/$APK" --clobber
+            git tag -f android-latest "${{ github.sha }}" && git push -f origin refs/tags/android-latest
+            gh release edit android-latest --title "$TITLE" --notes "$NOTES" --prerelease --draft=false
+            for a in $(gh release view android-latest --json assets --jq '.assets[].name'); do
+              [ "$a" = "$APK" ] || gh release delete-asset android-latest "$a" --yes
+            done
+          else
+            gh release create android-latest "apk/$APK" --prerelease --target "${{ github.sha }}" --title "$TITLE" --notes "$NOTES"
+          fi
           # gh uploads to a draft and publishes it at the end; once that last step was lost (build 28),
           # leaving a draft nobody could download. Make sure it is published, and check.
           gh release edit android-latest --draft=false --prerelease

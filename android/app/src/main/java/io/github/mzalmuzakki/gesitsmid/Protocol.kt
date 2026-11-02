@@ -77,13 +77,13 @@ object Replies {
     // confirmJump: a change bigger than this from the last accepted value needs a second reply close to the
     // first (or three replies in a row) before it counts. Sized to what really changes between two answers.
     private val rules = mapOf(
-        "SPD" to Rule(INT, 0f, 200f, Float.MAX_VALUE),
+        "SPD" to Rule(INT, 0f, 200f, 40f),
         "SOC" to Rule(INT, 0f, 100f, 2f),
         "SOH" to Rule(INT, 0f, 100f, 0f),
         "ODO" to Rule(DEC, 0f, 9_999_999f, 1f),
         "TINV" to Rule(INT, -40f, 150f, 10f), "TMOT" to Rule(INT, -40f, 150f, 10f), "TBAT" to Rule(INT, -40f, 100f, 10f),
-        "VBAT" to Rule(DEC, 20f, 150f, 15f),
-        "IBAT" to Rule(DEC, -300f, 400f, Float.MAX_VALUE),
+        "VBAT" to Rule(DEC, 20f, 150f, 8f),
+        "IBAT" to Rule(DEC, -300f, 400f, 150f),
         "TRT" to Rule(INT, 0f, 1000f, Float.MAX_VALUE),
         "MODE" to Rule(Regex("[0-9]"), 0f, 9f, 0f),
         "PARK" to Rule(Regex("[01]"), 0f, 1f, 0f),
@@ -126,11 +126,14 @@ class Telemetry {
     val raw = ConcurrentHashMap<String, String>()
     private val times = ConcurrentHashMap<String, Long>()
     @Volatile var lastUpdate = 0L
-    // Kept across reconnects: the last confirmed value and width per key, and an unconfirmed candidate.
+    // Kept across reconnects (cleared by [resetAll]): the last confirmed value per key, its width once two
+    // confirmed answers agree on it, and the latest unconfirmed candidate.
     private val refs = HashMap<String, String>()
     private val widths = HashMap<String, Int>()
+    private val widthSeen = HashMap<String, Int>()            // width of the last accepted answer (not locked yet)
+    private val altWidth = HashMap<String, Pair<Int, Int>>()  // another width seen in a row: (width, count)
     private val pending = HashMap<String, String>()
-    private val strikes = HashMap<String, Int>()
+    private val errHistory = ArrayDeque<String>()             // last 4 ERR answers
     /** -1 if this bike's battery reports current drawn as negative (see CurrentSign); IBAT is stored as "drawn > 0". */
     @Volatile var ibatSign = 1
     /** IBAT exactly as the MID sent it, for learning the sign. */
@@ -145,6 +148,16 @@ class Telemetry {
     /** Forget what is shown (link lost / MID silent) so no screen keeps showing old values as if live. */
     fun clearLive() { raw.clear(); times.clear(); ibatRaw = null }
 
+    /** Drop single values that stopped coming in (older than [maxAgeMs] for that key). */
+    fun expire(now: Long, maxAgeMs: (String) -> Long) {
+        for (k in times.keys.toList()) if (now - (times[k] ?: now) > maxAgeMs(k)) { raw.remove(k); times.remove(k) }
+    }
+
+    /** Forget everything, including what answers are expected to look like (new bike, data deleted). */
+    @Synchronized fun resetAll() {
+        clearLive(); refs.clear(); widths.clear(); widthSeen.clear(); altWidth.clear(); pending.clear(); errHistory.clear()
+    }
+
     private fun close(key: String, a: String, b: String, limit: Float): Boolean {
         if (key == "ERR" || limit == 0f) return a == b
         val x = a.toFloatOrNull() ?: return a == b
@@ -154,40 +167,58 @@ class Telemetry {
 
     /**
      * A reply from the MID. Kept only if it is well-formed, plausible and has the usual width. A value far
-     * from the last confirmed one (or the very first one for a key) needs a second reply close to it, or
-     * three such replies in a row - one garbled answer never counts. An error code that comes and goes is
-     * still caught (its candidate survives the clean answers in between). Returns true if it was taken.
+     * from the last confirmed one (or the very first one for a key) needs the next reply to agree with it -
+     * one garbled answer never counts. An error code counts once it shows up twice in the last 4 answers
+     * (so one that comes and goes is caught, scattered garble isn't). Returns true if it was taken.
      */
     @Synchronized
     fun offer(key: String, value: String, now: Long = System.currentTimeMillis()): Boolean {
         val trimmed = value.trim('"', ' ')
         val v = Replies.clean(key, value) ?: return false
-        if (key in Replies.WIDTH_LOCKED) widths[key]?.let { if (trimmed.length != it) return false }
+        if (!widthOk(key, trimmed.length)) return false
         val limit = Replies.confirmJump(key)
-        if (limit != Float.MAX_VALUE) {
+        if (key == "ERR") {
+            errHistory.addLast(v); while (errHistory.size > 4) errHistory.removeFirst()
+            if (refs[key] != v && errHistory.count { it == v } < 2) return false
+        } else if (limit != Float.MAX_VALUE) {
             val ref = refs[key]
             val p = pending[key]
-            val byRef = ref != null && close(key, ref, v, limit)
             when {
-                byRef -> { if (key != "ERR") { pending.remove(key); strikes.remove(key) } }
-                p != null && close(key, p, v, limit) -> { pending.remove(key); strikes.remove(key) }
-                else -> {
-                    pending[key] = v
-                    val n = (strikes[key] ?: 0) + 1
-                    strikes[key] = n
-                    if (n < 3) return false
-                    pending.remove(key); strikes.remove(key)
-                }
+                ref != null && close(key, ref, v, limit) -> pending.remove(key)
+                p != null && close(key, p, v, limit) -> pending.remove(key)
+                else -> { pending[key] = v; return false }
             }
         }
         refs[key] = v
-        if (key in Replies.WIDTH_LOCKED && widths[key] == null) widths[key] = trimmed.length
+        noteWidth(key, trimmed.length)
         if (key == "IBAT") {
             val a = v.toFloat(); ibatRaw = a
             put(key, if (ibatSign < 0) Replies.num(-a, if (v.startsWith("-")) v.substring(1) else "-$v") else v, now)
         } else put(key, v, now)
         return true
     }
+
+    /**
+     * Width check for zero-padded keys. Nothing is locked until two accepted answers had the same width. A locked
+     * width that turns out wrong (e.g. learned from an odd answer) is replaced after 3 answers in a row with a new
+     * width - those three still have to pass the value checks.
+     */
+    private fun widthOk(key: String, w: Int): Boolean {
+        if (key !in Replies.WIDTH_LOCKED) return true
+        val locked = widths[key] ?: return true
+        if (w == locked) { altWidth.remove(key); return true }
+        val (aw, n) = altWidth[key] ?: (w to 0)
+        val count = if (aw == w) n + 1 else 1
+        altWidth[key] = w to count
+        if (count >= 3) { widths.remove(key); widthSeen.remove(key); altWidth.remove(key); return true }
+        return false
+    }
+
+    private fun noteWidth(key: String, w: Int) {
+        if (key !in Replies.WIDTH_LOCKED || widths.containsKey(key)) return
+        if (widthSeen[key] == w) widths[key] = w else widthSeen[key] = w
+    }
+
     fun f(key: String): Float? = raw[key]?.trim('"', ' ')?.toFloatOrNull()
 
     val mode: String? get() = when (f("MODE")?.toInt()) { 0 -> "ECO"; 1 -> "URBAN"; 2 -> "SPORT"; null -> null; else -> "?" }

@@ -43,7 +43,7 @@ class ProtocolTest {
         assertTrue(t.offer("SOC", "099"))               // ...but the confirmed 100 still guards the next one
         assertFalse(t.offer("SOC", "008"))              // one odd reading: ignored
         assertEquals(99f, t.f("SOC"))
-        assertTrue(t.offer("SPD", "042"))               // speed: shown at once
+        assertFalse(t.offer("SPD", "042")); assertTrue(t.offer("SPD", "043"))   // speed: the next answer confirms it
     }
 
     @Test fun realChangesAreFollowedGarbleIsNot() {
@@ -52,7 +52,7 @@ class ProtocolTest {
         for (x in listOf(74, 78, 82, 86, 90)) assertTrue(t.offer("TMOT", String.format("%04d", x)))   // rising motor: followed
         assertEquals(90f, t.f("TMOT"))
         t.offer("VBAT", "079"); t.offer("VBAT", "079")
-        assertTrue(t.offer("VBAT", "068"))              // sag under load: followed
+        assertFalse(t.offer("VBAT", "068")); assertTrue(t.offer("VBAT", "067"))   // big sag under load: two answers
         assertFalse(t.offer("VBAT", "03")); assertFalse(t.offer("SOC", "8"))   // a character lost: wrong width
         t.offer("ODO", "003791.6"); t.offer("ODO", "003791.6")
         assertFalse(t.offer("ODO", "0037916"))          // the dot lost
@@ -75,13 +75,51 @@ class ProtocolTest {
         twice("SOC", "080"); twice("SPD", "000"); twice("TBAT", "0039"); twice("ODO", "003791.6"); twice("VBAT", "081")
         assertEquals("80", t.raw["SOC"]); assertEquals("0", t.raw["SPD"]); assertEquals("39", t.raw["TBAT"])
         assertEquals("3791.6", t.raw["ODO"]); assertEquals("81", t.raw["VBAT"])
-        t.ibatSign = -1; t.offer("IBAT", "  -25"); assertEquals("25", t.raw["IBAT"])
+        t.ibatSign = -1; t.offer("IBAT", "  -25"); t.offer("IBAT", "  -25"); assertEquals("25", t.raw["IBAT"])
     }
 
     @Test fun staleValuesCanBeTold() {
         val t = Telemetry()
-        t.offer("SPD", "042", now = 1_000)
+        t.offer("SPD", "042", now = 900); t.offer("SPD", "042", now = 1_000)
         assertTrue(t.fresh("SPD", 3_000, now = 3_000)); assertFalse(t.fresh("SPD", 3_000, now = 5_000))
         assertFalse(t.fresh("SOC", 3_000, now = 3_000))
     }
+
+    @Test fun anOddFirstWidthDoesNotLockOutGoodAnswers() {
+        val t = Telemetry()
+        t.offer("SPD", "12"); t.offer("SPD", "12")      // a short first answer, twice (accepted, width not locked yet)
+        assertTrue(t.offer("SPD", "013"))               // the real 3-digit answers still get in
+        assertTrue(t.offer("SPD", "014"))
+        assertFalse(t.offer("SPD", "15"))               // now width 3 is locked: a short one is dropped
+        t.resetAll(); assertNull(t.raw["SPD"])
+    }
+
+    @Test fun aWrongLockedWidthIsReplacedAfterThreeInARow() {
+        val t = Telemetry()
+        t.offer("SOC", "80"); t.offer("SOC", "80"); t.offer("SOC", "80")   // width 2 locked from odd answers
+        assertFalse(t.offer("SOC", "080")); assertFalse(t.offer("SOC", "080"))
+        assertTrue(t.offer("SOC", "079"))               // third 3-wide answer in a row: width relearned
+        assertEquals(79f, t.f("SOC"))
+    }
+
+    @Test fun scatteredGarbledErrorCodesAreNotAccepted() {
+        val t = Telemetry()
+        t.offer("ERR", "0000"); t.offer("ERR", "0000")
+        for (bad in listOf("0040", "0100", "0004", "0046")) {
+            assertFalse(t.offer("ERR", bad))
+            repeat(4) { t.offer("ERR", "0000") }
+        }
+        assertTrue(t.errors.isEmpty())
+    }
+
+    @Test fun disagreeingAnswersInARowAreNotAccepted() {
+        val t = Telemetry()
+        t.offer("SOC", "080"); t.offer("SOC", "080")
+        for (x in listOf("030", "090", "070", "020", "050")) assertFalse(t.offer("SOC", x))
+        assertEquals(80f, t.f("SOC"))
+        t.offer("TMOT", "0040"); t.offer("TMOT", "0040")
+        for (x in listOf("0145", "0095", "0125")) assertFalse(t.offer("TMOT", x))
+        assertEquals(40f, t.f("TMOT"))
+    }
 }
+

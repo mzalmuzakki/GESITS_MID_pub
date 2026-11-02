@@ -77,7 +77,22 @@ class RidesTest {
         assertTrue(a.evaluate(18f, null, null, null, emptyList()).isEmpty())   // no repeat
         assertTrue(a.evaluate(22f, null, null, null, emptyList()).isEmpty())   // not yet cleared
         a.evaluate(26f, null, null, null, emptyList())                          // cleared
-        assertEquals(1, a.evaluate(19f, null, null, null, emptyList()).size)    // fires again
+        assertTrue(a.evaluate(19f, null, null, null, emptyList(), nowMs = System.currentTimeMillis()).isEmpty())   // within 10 min: quiet
+        a.evaluate(26f, null, null, null, emptyList())
+        assertEquals(1, a.evaluate(19f, null, null, null, emptyList(), nowMs = System.currentTimeMillis() + 11 * 60_000L).size)   // later: again
         assertEquals(listOf("MID error: Throttle fault"), a.evaluate(null, null, null, null, listOf("Throttle fault")))
     }
+
+    @Test fun anAlarmComesBackAtMostEveryTenMinutes() {
+        val a = AlarmMonitor()
+        var fired = 0
+        for (i in 0 until 60) {                                  // an error that comes and goes every 10 s
+            val errs = if (i % 2 == 0) listOf("Under voltage") else emptyList()
+            fired += a.evaluate(80f, 30f, 40f, 100f, errs, nowMs = i * 10_000L).size
+        }
+        assertEquals(1, fired)
+        assertEquals(1, a.evaluate(80f, 30f, 40f, 100f, listOf("Under voltage"), nowMs = 11 * 60_000L).size +
+            a.evaluate(80f, 30f, 40f, 100f, emptyList(), nowMs = 11 * 60_000L + 1).size)
+    }
 }
+

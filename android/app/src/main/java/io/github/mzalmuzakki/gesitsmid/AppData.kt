@@ -76,6 +76,9 @@ object Alerts {
 
 /** Remembers where the bike was parked, using the phone's own GPS (no Google services, no internet). */
 object Parking {
+    /** Bumped by "Delete all my data", so a location request still in flight can't save afterwards. */
+    @Volatile var deleteEpoch = 0
+
     fun hasPermission(ctx: Context) =
         ctx.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
 
@@ -83,8 +86,10 @@ object Parking {
     fun capture(ctx: Context, s: Settings) {
         if (!s.rememberParking || !hasPermission(ctx)) return
         val lm = ctx.getSystemService(LocationManager::class.java) ?: return
+        val epoch = deleteEpoch
         val save = { l: Location? ->
-            if (l != null) {
+            // A location that arrives after "Delete all my data" (or after switching parking off) is thrown away.
+            if (l != null && epoch == deleteEpoch && s.rememberParking) {
                 s.parkLat = l.latitude.toFloat(); s.parkLon = l.longitude.toFloat(); s.parkTime = System.currentTimeMillis()
                 Bike.log("Parking location saved")   // coordinates are never written to the log
             }
@@ -113,12 +118,15 @@ object Demo {
     fun clear() {
         if (!active) return
         active = false; rides = null
-        Bike.telemetry.clearLive(); Bike.nav = null; Bike.lastFrame = null
+        Bike.telemetry.resetAll(); Bike.nav = null; Bike.lastFrame = null
         synchronized(Bike.samples) { Bike.samples.clear() }
-        synchronized(Bike.trip) { Bike.trip.clear() }
+        synchronized(Bike.trip) { tripBefore.let { if (it == null) Bike.trip.clear() else Bike.trip.load(it) } }   // your real trip, as it was
     }
 
+    private var tripBefore: String? = null
+
     fun load() {
+        if (!active) tripBefore = synchronized(Bike.trip) { Bike.trip.save() }
         active = true
         val t = Bike.telemetry
         listOf("SPD" to "38", "SOC" to "78", "SOH" to "96", "ODO" to "3812.4", "MODE" to "1", "PARK" to "0",

@@ -67,6 +67,13 @@ object L {
         "Save text" to "Simpan teks", "Text cleared" to "Teks dihapus",
         "Pair the bike again: phone Bluetooth settings → Gesits." to "Pasangkan ulang motor: pengaturan Bluetooth HP → Gesits.",
         "SLOW DOWN" to "PELAN",
+        "On connect and when the minute changes" to "Saat terhubung dan saat menit berganti",
+        "No picture chosen" to "Belum ada gambar dipilih",
+        "The MID stopped answering. When it is safe, stop and switch the bike off and on. Until it answers again the app only asks one question every 15 s." to
+            "MID berhenti merespons. Jika aman, berhenti lalu matikan dan nyalakan motor. Sampai MID menjawab lagi, aplikasi hanya mengirim satu pertanyaan setiap 15 detik.",
+        "No answer from the bike (switched off?) - waiting" to "Tidak ada jawaban dari motor (dimatikan?) - menunggu",
+        "The MID answers again - questions only until the bike is switched off and on" to
+            "MID menjawab lagi - hanya pertanyaan sampai motor dimatikan lalu dinyalakan",
         "Ask the MID a question, e.g. AT+SPD?. Only questions can be sent from here: writes (odometer, range...) are refused, because an unknown write froze a G1's MID." to
             "Ajukan pertanyaan ke MID, mis. AT+SPD?. Dari sini hanya pertanyaan yang bisa dikirim: penulisan (odometer, jarak...) ditolak, karena penulisan tak dikenal membuat MID G1 macet.",
         "Only questions like AT+SPD? can be sent" to "Hanya pertanyaan seperti AT+SPD? yang bisa dikirim",

@@ -34,7 +34,7 @@ open mid "--es lang id --ez nav true"; shot 15-mid-indonesia 5
 open trips "--es lang id";           shot 16-trips-indonesia 5
 
 {
-  echo "== Foreground (Speedometer open) =="
+  echo "== Foreground (app open, last screen: Trips) =="
   adb shell dumpsys meminfo $PKG | sed -n '/App Summary/,/TOTAL SWAP/p'
   adb shell input keyevent HOME; sleep 8
   echo "== Background (after HOME) =="
@@ -54,7 +54,7 @@ if grep -q "ANR in $PKG" shots/logcat.txt; then
   echo "APP FROZE (ANR):"; grep -A 15 "ANR in $PKG" shots/logcat.txt
   exit 1
 fi
-# Every screenshot must exist and not be empty (a screen that never opened would leave a 0-byte file).
+# Every screenshot was saved (this does not prove each screen opened: look at the pictures).
 for f in shots/*.png; do test -s "$f"; done
 rm -f shots/logcat.txt
 echo "No crashes."

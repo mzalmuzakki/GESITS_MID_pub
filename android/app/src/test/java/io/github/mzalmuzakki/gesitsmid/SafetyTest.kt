@@ -50,11 +50,18 @@ class SafetyTest {
         assertFalse(l.silent(9_000)); assertTrue(l.silent(9_001))
     }
 
-    @Test fun silenceWhileRidingMeansHungParkedMeansOff() {
+    @Test fun silenceWhileMovingIsAHangStoppedWaitsForTheLinkToDrop() {
         val l = Liveness()
-        assertEquals(Liveness.Verdict.HUNG, l.verdict(40f, "D"))
-        assertEquals(Liveness.Verdict.HUNG, l.verdict(0f, "D"))
-        assertEquals(Liveness.Verdict.BIKE_OFF, l.verdict(0f, "P"))
-        assertEquals(Liveness.Verdict.BIKE_OFF, l.verdict(null, null))
+        l.connected(0); l.answered(1_000)
+        assertEquals(Liveness.Verdict.HUNG, l.verdict(10_000, lastMovingAt = 2_000))    // was moving 8 s ago
+        assertEquals(Liveness.Verdict.WAIT, l.verdict(10_000, lastMovingAt = 0))        // stopped: maybe switched off
+        assertEquals(Liveness.Verdict.WAIT, l.verdict(30_000, lastMovingAt = 0))
+        assertEquals(Liveness.Verdict.HUNG, l.verdict(31_001, lastMovingAt = 0))        // link still up after 30 s: on
+    }
+
+    @Test fun onlyKnownQuestions() {
+        assertTrue(Traffic.allowed("AT+NUMBAT?\r\n"))
+        assertFalse(Traffic.allowed("AT+RESET?\r\n")); assertFalse(Traffic.allowed("AT+MAPEND?\r\n"))
+        assertNull(Traffic.console("AT+RESET?"))
     }
 }

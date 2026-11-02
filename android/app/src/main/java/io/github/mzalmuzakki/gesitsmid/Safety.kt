@@ -20,7 +20,9 @@ object Traffic {
     /** GRID Mobile's own MID pictures are about 4000 characters; 7000 is where the MID is said to freeze. */
     const val PICTURE_MAX_CHARS = 4000
 
-    private val QUESTION = Regex("""AT\+[A-Z0-9]{1,12}\?\r\n""")
+    /** The only names ever asked: what the MID was seen to answer on a real G1. */
+    val KNOWN_QUESTIONS: Set<String> = Mid.POLL_KEYS.toSet() + setOf("VER", "NUMBAT", "FWD", "CBAT", "TRT")
+    private val QUESTION = Regex("""AT\+([A-Z0-9]{1,12})\?\r\n""")
     private val TIME = Regex("""AT\+TIME="\d{4}"\r\n""")
     private val NAV = Regex("""AT\+NAV="[ -!#-~]{20}"\r\n""")
     private val MAPS = Regex("""AT\+MAPS="[A-Za-z0-9+/=]{1,4000}"\r\n""")
@@ -29,14 +31,16 @@ object Traffic {
      * The only commands that may be sent: questions (AT+KEY?), the clock, the 20-character text line and
      * a picture of at most [PICTURE_MAX_CHARS]. Never the odometer, range or any other write.
      */
-    fun allowed(cmd: String): Boolean =
-        QUESTION.matches(cmd) || TIME.matches(cmd) || NAV.matches(cmd) || MAPS.matches(cmd)
+    fun allowed(cmd: String): Boolean = isQuestion(cmd) || TIME.matches(cmd) || NAV.matches(cmd) || MAPS.matches(cmd)
+
+    /** A question about a known value (AT+SOC?): the only thing sent while the MID is silent or hung. */
+    fun isQuestion(cmd: String): Boolean = QUESTION.matchEntire(cmd)?.groupValues?.get(1) in KNOWN_QUESTIONS
 
     /** A command typed in the console: only questions, written any way ("at+soc ?" -> "AT+SOC?\r\n"). */
     fun console(text: String): String? {
         val c = text.filterNot { it.isWhitespace() }.uppercase()
         val cmd = (if (c.startsWith("AT+")) c else "AT+$c") + "\r\n"
-        return cmd.takeIf { QUESTION.matches(it) }
+        return cmd.takeIf { isQuestion(it) }
     }
 
     /** How long the MID is left alone after [cmd]: a picture needs time to be received and drawn. */
@@ -48,13 +52,15 @@ object Traffic {
 
 /**
  * Is the MID answering? Writes (clock, text, picture) only go out while it has answered a question in the
- * last [WRITE_WINDOW_MS]; questions alone are sent otherwise. Silence decides what to do next.
+ * last [WRITE_WINDOW_MS]. Silence decides what to do next ([verdict]).
  */
 class Liveness {
     companion object {
         const val WRITE_WINDOW_MS = 3_000L
-        const val SILENT_AFTER_MS = 8_000L          // ~16 unanswered questions at 2 a second
+        const val SILENT_AFTER_MS = 8_000L          // ~13 unanswered questions while riding
         const val FIRST_ANSWER_MS = 20_000L         // after connecting
+        const val MOVING_RECENTLY_MS = 15_000L
+        const val STOPPED_HANG_MS = 30_000L         // stopped: Bluetooth drops well before this when switched off
     }
 
     var connectedAt = 0L; private set
@@ -69,14 +75,23 @@ class Liveness {
     fun silent(now: Long): Boolean =
         if (lastAnswerAt > 0L) now - lastAnswerAt > SILENT_AFTER_MS else now - connectedAt > FIRST_ANSWER_MS
 
+    /** Milliseconds of silence on this connection (since the last answer, or since connecting). */
+    fun silenceMs(now: Long): Long = now - maxOf(lastAnswerAt, connectedAt)
+
     enum class Verdict {
-        /** The bike was moving or in Drive: the MID has probably hung. Stay silent and warn. */
+        /** The MID has probably hung: stay quiet (one question now and then) and warn. */
         HUNG,
-        /** Parked: most likely the ignition was switched off. Drop the link quietly and retry slowly. */
-        BIKE_OFF,
+        /** Not sure yet: stopped, link still up. Ask nothing but the odd question and wait. */
+        WAIT,
     }
 
-    /** What silence means, from the last confirmed speed and gear. */
-    fun verdict(lastSpeed: Float?, lastGear: String?): Verdict =
-        if ((lastSpeed ?: 0f) > 3f || lastGear == "D") Verdict.HUNG else Verdict.BIKE_OFF
+    /**
+     * What silence means. Moving in the last 15 s: the ignition can't have been switched off, so the MID hung.
+     * Stopped: switching the ignition off drops the Bluetooth link within seconds, so if the link is still up
+     * after 30 s of silence, the bike is on and the MID has hung (also on a bench test). Until then: wait.
+     */
+    fun verdict(now: Long, lastMovingAt: Long): Verdict =
+        if (lastMovingAt > 0L && now - lastMovingAt < MOVING_RECENTLY_MS) Verdict.HUNG
+        else if (silenceMs(now) >= STOPPED_HANG_MS) Verdict.HUNG
+        else Verdict.WAIT
 }
