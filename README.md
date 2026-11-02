@@ -16,9 +16,11 @@ read live data, set the clock, and put your own text and pictures on the stock M
 * **Python toolkit:** `gesits/`. Runs on a laptop or a Raspberry Pi, so a Pi with a screen can
   serve as a replacement display.
 * **Custom MID screen:** your own dashboard (charge, power/regen, range, temperatures, mode, errors)
-  drawn as a picture and pushed into the MID's map area.
+  drawn as a picture and pushed into the MID's map area. **Caution:** on a real G1 (MID `11-50-09-G1`)
+  heavy picture traffic made the MID freeze (speed and turn signals) until the ignition was switched off
+  and on. The Android app therefore has pictures off by default; see [android/README.md](android/README.md#safety-the-mid-can-freeze).
   * From a laptop/Pi: `python -m gesits screen ble://GESITS` (or `bt://…`)
-  * From a phone: the [Android app](android/) (recommended)
+  * From a phone: the [Android app](android/) (recommended: it limits traffic and backs off if the MID stops answering)
   * Standalone on the bike: [firmware/esp32_mid_screen](firmware/esp32_mid_screen) (ESP32 over BLE).
     **Experimental and not maintained**: the phone app does everything it does and more, so you don't need it.
 
@@ -28,9 +30,9 @@ read live data, set the clock, and put your own text and pictures on the stock M
 
 * **Simulator:** a fake bike, so you can develop without the motorcycle.
 
-> Most commands are used daily by the community GESITS Dashboard app, but this toolkit itself has
-> not been run on a bike yet. Test while parked. Don't fiddle with the MID while riding.
-> The odometer-write command (`AT+ODO=`) is documented but deliberately not exposed.
+> The toolkit was run on a real G1 (laptop self-test over a Classic COM port; results in
+> [docs/PROTOCOL.md](docs/PROTOCOL.md)). Use it while parked only. Writes to `ODO` and `RANGE` are refused
+> (`RANGE` made the MID stop answering). `selftest` only asks the known values unless you add `--probe`.
 
 > **Testing with a laptop?** Follow [docs/LAPTOP_TEST.md](docs/LAPTOP_TEST.md) (about 15 minutes, read-only first).
 
@@ -102,6 +104,8 @@ pictures. Simple, high-contrast graphics look best. `--legacy` uses the old offi
 2. ✅ Cross-checked with GESITS Dashboard (real-bike behaviour, JPEG pictures, 20-char text, BLE path)
 3. ✅ Custom MID screen (`gesits screen`) and BLE connection (`ble://`), ESP32 firmware (experimental, not maintained)
 4. ✅ Android app (phone as the MID's brain): dashboard, range, clock, directions, trips, battery health
-5. ⏳ First test on your bike: connect, custom screen, MID acknowledgements
-6. Optional: ESP32 + TFT replacement display (ESP32 classic, since it needs Bluetooth Classic SPP)
-7. Stock MID firmware / wiring work (needs hands-on hardware access)
+5. ✅ First tests on a G1: connect, range in the text line, real-bike protocol findings (no write
+   acknowledgements, zero-padded replies, garbling and freezing under load)
+6. ⏳ Long bench test of the Android app with the bike on its stand, before relying on it while riding
+7. Optional: ESP32 + TFT replacement display (ESP32 classic, since it needs Bluetooth Classic SPP)
+8. Stock MID firmware / wiring work (needs hands-on hardware access)

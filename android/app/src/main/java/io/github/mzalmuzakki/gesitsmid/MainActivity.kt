@@ -62,7 +62,8 @@ class MainActivity : Activity() {
         setContentView(shell())
 
         // Demo data for screenshots: only with USB debugging on, and kept in memory only (nothing is saved).
-        if (demo) {
+        if (demo && Bike.running) toast("Demo is not available while connected to a bike")
+        if (demo && !Bike.running) {
             Demo.load()
             val page = if (intent.getBooleanExtra("nav", false)) {
                 Bike.nav = NavParser.parse("200 m", if (L.indo) "Belok kiri ke Jl. Sudirman" else "Turn left onto Jl. Sudirman", "ETA 14:32")
@@ -153,17 +154,28 @@ class MainActivity : Activity() {
     private fun toast(s: String) = Toast.makeText(this, L.t(s), Toast.LENGTH_LONG).show()
 
     // ================================================================ permissions + bike selection
-    private fun neededPermissions(): Array<String> = when {
-        Build.VERSION.SDK_INT >= 33 -> arrayOf(Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.POST_NOTIFICATIONS)
+    /**
+     * What connecting needs. Android 12+: Bluetooth permissions only. Android 8-11: nothing for a paired Classic
+     * bike; location only to scan for a BLE bike (Android's rule for BLE scanning).
+     * Notifications are asked for but not required (the hang warning also shows in the app).
+     */
+    private fun neededPermissions(ble: Boolean = settings.linkType == "ble"): Array<String> = when {
         Build.VERSION.SDK_INT >= 31 -> arrayOf(Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_SCAN)
-        else -> arrayOf(Manifest.permission.ACCESS_FINE_LOCATION)
+        ble -> arrayOf(Manifest.permission.ACCESS_FINE_LOCATION)
+        else -> arrayOf()
     }
-    private fun hasPermissions() = neededPermissions().all { checkSelfPermission(it) == PackageManager.PERMISSION_GRANTED }
+    private fun hasPermissions(ble: Boolean = settings.linkType == "ble") =
+        neededPermissions(ble).all { checkSelfPermission(it) == PackageManager.PERMISSION_GRANTED }
 
     /** Asks only when needed (first time you choose or connect the bike), never on app start. */
-    private fun requireReady(): Boolean {
-        if (!hasPermissions()) {
-            requestPermissions(neededPermissions().filter { checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED }.toTypedArray(), 1)
+    private fun requireReady(ble: Boolean = settings.linkType == "ble"): Boolean {
+        if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED &&
+            !getSharedPreferences("settings", MODE_PRIVATE).getBoolean("askedNotif", false)) {
+            getSharedPreferences("settings", MODE_PRIVATE).edit().putBoolean("askedNotif", true).apply()
+            requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 3)
+        }
+        if (!hasPermissions(ble)) {
+            requestPermissions(neededPermissions(ble).filter { checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED }.toTypedArray(), 1)
             toast("Allow Bluetooth access, then tap again"); return false
         }
         val adapter = getSystemService(BluetoothManager::class.java)?.adapter
@@ -172,7 +184,7 @@ class MainActivity : Activity() {
     }
 
     private fun chooseClassic() {
-        if (!requireReady()) return
+        if (!requireReady(ble = false)) return
         val devices = getSystemService(BluetoothManager::class.java).adapter.bondedDevices.toList()
             .sortedByDescending { (it.name ?: "").contains("GESITS", ignoreCase = true) }
         if (devices.isEmpty()) {
@@ -187,7 +199,7 @@ class MainActivity : Activity() {
     }
 
     private fun chooseBle() {
-        if (!requireReady()) return
+        if (!requireReady(ble = true)) return
         val scanner = getSystemService(BluetoothManager::class.java).adapter.bluetoothLeScanner ?: run { toast("BLE not available"); return }
         val found = LinkedHashMap<String, BluetoothDevice>(); val names = HashMap<String, String>()
         val cb = object : ScanCallback() {
@@ -213,7 +225,7 @@ class MainActivity : Activity() {
         settings.deviceName = name ?: d.name ?: d.address
         settings.linkType = type
         pages.remove("home"); show("home")
-        if (Bike.running) { MidService.stop(this); ui.postDelayed({ MidService.start(this) }, 800) } else MidService.start(this)
+        if (Bike.running) { MidService.stop(this); ui.postDelayed({ MidService.start(this, tap = true) }, 800) } else MidService.start(this, tap = true)
     }
 
     private fun chooseBikeDialog() = AlertDialog.Builder(this).setTitle(L.t("How to connect?"))
@@ -246,7 +258,7 @@ class MainActivity : Activity() {
         connSub = Ui.text(this, cc, "", 13f, Ui.MUTED)
         val r = Ui.row(this, cc)
         connBtn = Ui.primary(this, r, "Connect", 2f) {
-            if (Bike.running) MidService.stop(this) else if (settings.address == null) chooseBikeDialog() else if (requireReady()) MidService.start(this)
+            if (Bike.running) MidService.stop(this) else if (settings.address == null) chooseBikeDialog() else if (requireReady()) MidService.start(this, tap = true)
         }
         Ui.secondary(this, r, "Change bike", 1f) { chooseBikeDialog() }
 
@@ -287,19 +299,21 @@ class MainActivity : Activity() {
     private fun refreshHome() {
         if (!::connTitle.isInitialized) return
         val name = settings.deviceName?.let { "$it · ${if (settings.linkType == "ble") "Bluetooth LE" else "Bluetooth Classic"}" } ?: L.t("No bike chosen yet")
+        val hung = Bike.status.startsWith("The MID stopped answering")
         connTitle.text = when {
+            hung -> "⚠ " + L.t("MID not answering")
             Bike.connected -> "● " + L.t("Connected")
             Bike.running -> "○ " + L.t("Connecting…")
             else -> "○ " + L.t("Not connected")
         }
-        connTitle.setTextColor(if (Bike.connected) Ui.GREEN else if (Bike.running) Ui.AMBER else Ui.MUTED)
+        connTitle.setTextColor(if (hung) Ui.RED else if (Bike.connected) Ui.GREEN else if (Bike.running) Ui.AMBER else Ui.MUTED)
         connSub.text = name + (Bike.telemetry.raw["VER"]?.let { "\n" + L.t("MID version") + " $it" } ?: "") +
-            (if (Bike.running && !Bike.connected) "\n" + Bike.status else "")
+            (if (Bike.running && !Bike.connected) "\n" + L.status(Bike.status) else "")
         connBtn.text = L.t(if (Bike.running) "Disconnect" else "Connect")
 
         val t = Bike.telemetry
         val alerts = mutableListOf<String>()
-        if (t.errors.isNotEmpty()) alerts += L.t("MID error") + ": " + t.errors.joinToString()
+        if (t.errors.isNotEmpty()) alerts += L.t("MID error") + ": " + t.errors.joinToString { L.t(it) }
         t.f("SOC")?.let { if (it <= settings.socLow) alerts += L.t("Battery low") + ": ${it.toInt()}%" }
         if (Bike.running && !getSystemService(android.os.PowerManager::class.java).isIgnoringBatteryOptimizations(packageName))
             alerts += L.t("The phone may stop the connection in the background. Tools → Keep connected.")
@@ -326,7 +340,7 @@ class MainActivity : Activity() {
         val p = t.powerW
         live["PWR"]!!.text = (p?.let { String.format(Locale.US, "%.1f", it / 1000f) } ?: "--") + " kW"
         live["PWR"]!!.setTextColor(if (p != null && p < 0) Ui.GREEN else Ui.TEXT)
-        live["SPD"]!!.text = v("SPD") + " km/h"
+        live["SPD"]!!.text = (if (Bike.connected && t.fresh("SPD", 3000)) v("SPD") else "--") + " km/h"
         live["MODE"]!!.text = t.mode ?: "--"
         live["GEAR"]!!.text = when (t.gear) { "P" -> L.t("Park"); "D" -> L.t("Drive"); else -> "--" }
         live["HEALTH"]!!.text = v("SOH") + "%"
@@ -395,7 +409,6 @@ class MainActivity : Activity() {
                 .setPositiveButton(L.t("Forget")) { _, _ -> synchronized(Bike.range) { Bike.range.reset(); Bike.energy.reset(); settings.rangeState = Bike.range.save(); settings.energyState = Bike.energy.save() } }
                 .setNegativeButton(L.t("Cancel"), null).show()
         }
-        Ui.switchRow(this, rc, "Also try to replace the MID's range figure", "On the G1 the MID puts its own number back instantly, so this only flickers.", settings.rangeOverride) { settings.rangeOverride = it }
 
         val ac = Ui.card(this, col, "SENT TO THE MID")
         ackText = Ui.text(this, ac, "", 13f, mono = true)
@@ -420,8 +433,9 @@ class MainActivity : Activity() {
         val adv = Ui.collapsible(this, col, "Advanced: position & calibration")
         Ui.text(this, adv, "Send a grid, photograph the MID, and adjust the margins (pixels of the 320×128 picture) if the MID covers an edge.", 12f, Ui.MUTED)
         val g = Ui.row(this, adv)
-        Ui.secondary(this, g, "Grid", 1f) { settings.screenMode = "grid"; toast("Grid goes to the MID in a few seconds") }
-        Ui.secondary(this, g, "Large grid", 1f) { settings.screenMode = "gridLarge"; toast("Large grid goes to the MID in a few seconds") }
+        // A grid is a picture: shown for 2 minutes, then pictures switch off again by themselves.
+        Ui.secondary(this, g, "Grid", 1f) { settings.screenMode = "grid"; settings.gridUntil = System.currentTimeMillis() + 120_000; toast("Grid goes to the MID for 2 minutes") }
+        Ui.secondary(this, g, "Large grid", 1f) { settings.screenMode = "gridLarge"; settings.gridUntil = System.currentTimeMillis() + 120_000; toast("Large grid goes to the MID for 2 minutes") }
         val m = settings.margins
         val mr = Ui.row(this, adv)
         fun num(label: String, v: Int): android.widget.EditText {
@@ -430,10 +444,10 @@ class MainActivity : Activity() {
             return Ui.number(this, box, label, v.toFloat())
         }
         val eL = num("Left", m.left); val eT = num("Top", m.top); val eR = num("Right", m.right); val eB = num("Bottom", m.bottom)
-        Ui.primary(this, adv, "Save position & show live info") {
+        Ui.primary(this, adv, "Save position") {
             fun v(e: android.widget.EditText, max: Int) = (e.text.toString().toFloatOrNull()?.toInt() ?: 0).coerceIn(0, max)
             settings.margins = ScreenRenderer.Margins(v(eL, 280), v(eT, 100), v(eR, 280), v(eB, 100))
-            settings.screenMode = "dashboard"; pages.remove("mid"); show("mid"); toast("Saved")
+            pages.remove("mid"); show("mid"); toast("Saved")
         }
         return sv
     }
@@ -446,7 +460,7 @@ class MainActivity : Activity() {
         val now = System.currentTimeMillis()
         // Some MIDs answer writes with the command's name; others (seen on a G1) answer only questions.
         val confirms = Bike.ackAt.isNotEmpty()
-        ackText.text = listOf("MAPS" to "picture", "TIME" to "clock", "NAV" to "text", "TRIP" to "range").joinToString("\n") { (k, label) ->
+        ackText.text = listOf("MAPS" to "picture", "TIME" to "clock", "NAV" to "text").joinToString("\n") { (k, label) ->
             val sent = Bike.sentAt[k]; val ack = Bike.ackAt[k]
             val state = when {
                 sent == null -> "-"
@@ -558,27 +572,39 @@ class MainActivity : Activity() {
             AlertDialog.Builder(this).setTitle(L.t("Delete all data?"))
                 .setMessage(L.t("Rides, learned range, trip, parking location, chosen bike and settings will be erased."))
                 .setPositiveButton(L.t("Delete")) { _, _ ->
-                    MidService.stop(this); RideStore.clear(this)
-                    getSharedPreferences("settings", MODE_PRIVATE).edit().clear().apply()
-                    deleteFile("picture.b64")
-                    synchronized(Bike.range) { Bike.range.reset(); Bike.energy.reset() }; synchronized(Bike.trip) { Bike.trip.clear() }
-                    synchronized(Bike.battery) { Bike.battery.clear() }
-                    recreate()
+                    // Stop first and wait until the service has finished, so it can't save a ride or the parking
+                    // place again after the delete.
+                    MidService.stop(this)
+                    Thread {
+                        val end = System.currentTimeMillis() + 6000
+                        while (Bike.workerAlive && System.currentTimeMillis() < end) Thread.sleep(100)
+                        runOnUiThread {
+                            RideStore.clear(this)
+                            getSharedPreferences("settings", MODE_PRIVATE).edit().clear().apply()
+                            deleteFile("picture.b64")
+                            synchronized(Bike.range) { Bike.range.reset(); Bike.energy.reset() }; synchronized(Bike.trip) { Bike.trip.clear() }
+                            synchronized(Bike.battery) { Bike.battery.clear() }
+                            synchronized(Bike.log) { Bike.log.clear() }
+                            synchronized(Bike.samples) { Bike.samples.clear() }
+                            Bike.telemetry.clearLive(); Bike.currentSign.load("1;false"); Bike.telemetry.ibatSign = 1
+                            Bike.nav = null; Bike.lastFrame = null; Bike.status = "Not connected"
+                            BikeWidget.update(this)
+                            recreate()
+                        }
+                    }.start()
                 }.setNegativeButton(L.t("Cancel"), null).show()
         }
 
         val adv = Ui.collapsible(this, col, "Advanced: console & log")
-        Ui.text(this, adv, "Send your own AT command, e.g. AT+SPD?. Queries ending in ? only read. Odometer and RANGE writes are blocked (RANGE froze a G1's MID).", 12f, Ui.MUTED)
+        Ui.text(this, adv, "Ask the MID a question, e.g. AT+SPD?. Only questions can be sent from here: writes (odometer, range...) are refused, because an unknown write froze a G1's MID.", 12f, Ui.MUTED)
         val cmd = Ui.input(this, adv, "AT+VER?")
         val cr = Ui.row(this, adv)
         Ui.secondary(this, cr, "Send", 1f) {
-            val c = cmd.text.toString().trim()
+            val q = Traffic.console(cmd.text.toString())
             when {
                 !Bike.connected -> toast("Connect to the bike first")
-                c.isEmpty() -> {}
-                c.uppercase().startsWith("AT+ODO=") -> toast("Odometer writes are blocked in this app")
-                c.uppercase().startsWith("AT+RANGE=") -> toast(L.t("RANGE writes are blocked: they made a G1's MID stop answering"))
-                else -> Bike.outbox.add(c + "\r\n")
+                q == null -> toast("Only questions like AT+SPD? can be sent")
+                else -> Bike.outbox.add(q)
             }
         }
         logView = Ui.text(this, adv, "", 11f, Ui.MUTED, mono = true)
@@ -632,7 +658,7 @@ class MainActivity : Activity() {
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode == enableBt) { if (resultCode == RESULT_OK && !Bike.running) MidService.start(this); return }
+        if (requestCode == enableBt) { if (resultCode == RESULT_OK && !Bike.running) MidService.start(this, tap = true); return }
         val uri = data?.data ?: return
         if (resultCode != RESULT_OK) return
         when (requestCode) {

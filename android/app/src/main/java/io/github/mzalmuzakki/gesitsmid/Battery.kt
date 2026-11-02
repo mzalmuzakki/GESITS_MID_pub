@@ -8,7 +8,7 @@ import java.util.Locale
  *  - charging sessions (battery % went up by >= [minChargePct])
  *  - charging detection, % per hour and time to a target level
  * The true lifetime cycle count lives in the battery's BMS; if the MID ever reports one
- * (see [Mid.CYCLE_KEYS]) the app shows that number too. Pure Kotlin, unit-tested.
+ * the MID doesn't report it). Pure Kotlin, unit-tested.
  */
 class BatteryTracker(private val minChargePct: Float = 10f) {
     var dischargedPct = 0f; private set
@@ -117,18 +117,26 @@ class CurrentSign {
     var decided = false; private set
     private var pos = 0
     private var neg = 0
+    private var against = 0                            // windows in a row that disagree with the decided sign
 
-    /** Feed raw readings about once a second; returns true when the sign was (re)decided as different. */
+    /**
+     * Feed raw readings about once a second; returns true when the sign changed. The first window of ~40 s
+     * of riding decides; after that it only flips when three windows in a row disagree, so a long downhill
+     * on regen doesn't flip it.
+     */
     fun update(spd: Float?, rawIbat: Float?): Boolean {
         if (spd == null || rawIbat == null || spd < 8f || kotlin.math.abs(rawIbat) < 2f) return false
         if (rawIbat > 0f) pos++ else neg++
         val n = pos + neg
         if (n < 40) return false                       // about 40 s of riding with real current
-        val s = when { neg >= n * 0.75f -> -1; pos >= n * 0.75f -> 1; else -> sign }
+        val s = when { neg >= n * 0.75f -> -1; pos >= n * 0.75f -> 1; else -> 0 }
         pos = 0; neg = 0
-        decided = true
-        if (s == sign) return false
-        sign = s; return true
+        if (s == 0) return false
+        if (!decided) { decided = true; against = 0; if (s == sign) return false; sign = s; return true }
+        if (s == sign) { against = 0; return false }
+        against++
+        if (against < 3) return false
+        against = 0; sign = s; return true
     }
 
     fun save(): String = "$sign;$decided"

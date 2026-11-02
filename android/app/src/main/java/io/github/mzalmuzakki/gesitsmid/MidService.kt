@@ -30,8 +30,11 @@ object Bike {
     /** Sign of the battery current on this bike (learned while riding). */
     val currentSign = CurrentSign()
 
-    /** When the MID last sent anything (watchdog: a link that went silent is reconnected). */
+    /** When the MID last sent a valid answer (see Liveness). */
     @Volatile var lastRxAt = 0L
+    /** The current worker's number: an older worker still stuck in a Bluetooth call sees it changed and quits. */
+    @Volatile var workerGen = 0
+    @Volatile var workerAlive = false
     /** One-off commands from the UI (text, picture...), sent by the service thread. */
     val outbox = LinkedBlockingQueue<String>()
     val log = ArrayDeque<String>()
@@ -69,7 +72,7 @@ object Bike {
     val samples = ArrayDeque<Sample>()
     fun addSample(x: Sample) = synchronized(samples) { samples.addLast(x); while (samples.size > 600) samples.removeFirst() }
 
-    /** True while the Speedometer or Diagnosis screen is visible: poll live values faster. */
+    /** True while the Speedometer or Diagnosis screen is visible. No longer changes how often the MID is asked. */
     @Volatile var uiFast = false
 
     /** Battery cycles / charging (guard with synchronized(battery)). */
@@ -88,7 +91,7 @@ object Bike {
     /** When each write was last sent, and when the MID last confirmed it (MID replies with the key). */
     val sentAt = java.util.concurrent.ConcurrentHashMap<String, Long>()
     val ackAt = java.util.concurrent.ConcurrentHashMap<String, Long>()
-    val ACK_KEYS = listOf("MAPS", "TIME", "NAV", "TRIP", "ARROW")
+    val ACK_KEYS = listOf("MAPS", "TIME", "NAV")
 
     /** Automatic ride recording and alarms (used only by the service thread). */
     val recorder = RideRecorder()
@@ -119,16 +122,18 @@ class Settings(ctx: Context) {
      * you can switch them on again in the MID tab.
      */
     fun migrateSafeDefaults() {
-        if (p.getBoolean("safe016", false)) return
-        p.edit().putString("screen", "off").putInt("frameSec", maxOf(p.getInt("frameSec", 10), 10)).putBoolean("safe016", true).apply()
+        if (!p.getBoolean("safe016", false))
+            p.edit().putString("screen", "off").putInt("frameSec", maxOf(p.getInt("frameSec", 10), 10)).putBoolean("safe016", true).apply()
+        // v0.17: the AT+TRIP range override is gone for good.
+        if (p.contains("rangeOverride")) p.edit().remove("rangeOverride").apply()
     }
     /** Show the app's adaptive range in the MID text line (when you have no text of your own). */
     /** How the Classic link last connected (insecure / secure / ch1): tried first next time. */
     var classicMethod: String? get() = p.getString("classicMethod", null); set(v) = p.edit().putString("classicMethod", v).apply()
     var currentSign: String? get() = p.getString("ibatSign", null); set(v) = p.edit().putString("ibatSign", v).apply()
     var rangeLine: Boolean get() = p.getBoolean("rangeLine", true); set(v) = p.edit().putBoolean("rangeLine", v).apply()
-    /** Also try to replace the MID's own range figure with AT+TRIP. On a G1 (MID 11-50-09-G1) it reverts instantly. */
-    var rangeOverride: Boolean get() = p.getBoolean("rangeOverride", false); set(v) = p.edit().putBoolean("rangeOverride", v).apply()
+    /** A calibration grid is shown until this time, then pictures switch off again. */
+    var gridUntil: Long get() = p.getLong("gridUntil", 0L); set(v) = p.edit().putLong("gridUntil", v).apply()
     var syncTime: Boolean get() = p.getBoolean("time", true); set(v) = p.edit().putBoolean("time", v).apply()
     /** Show today's date on the MID text line when no own text is set (like GRID Mobile). */
     var navDate: Boolean get() = p.getBoolean("navDate", true); set(v) = p.edit().putBoolean("navDate", v).apply()
@@ -178,10 +183,11 @@ class MidService : Service() {
         const val ACTION_STOP = "stop"
         private const val CHANNEL = "mid"
         private const val NOTIF_ID = 1
-        private const val TRIP_EVERY_MS = 250L
+        const val EXTRA_TAP = "tap"
 
-        fun start(ctx: Context) {
-            val i = Intent(ctx, MidService::class.java).setAction(ACTION_START)
+        /** [tap]: you tapped Connect (Android may then show one pairing request); false for auto-connect. */
+        fun start(ctx: Context, tap: Boolean = false) {
+            val i = Intent(ctx, MidService::class.java).setAction(ACTION_START).putExtra(EXTRA_TAP, tap)
             if (Build.VERSION.SDK_INT >= 26) ctx.startForegroundService(i) else ctx.startService(i)
         }
         fun stop(ctx: Context) { ctx.startService(Intent(ctx, MidService::class.java).setAction(ACTION_STOP)) }
@@ -191,7 +197,7 @@ class MidService : Service() {
     private var wakeLock: android.os.PowerManager.WakeLock? = null
 
     /** Keeps the CPU awake while connected, so the link survives screen-off and app switching. */
-    private fun holdWakeLock(on: Boolean) {
+    @Synchronized private fun holdWakeLock(on: Boolean) {
         if (on && wakeLock == null) {
             wakeLock = getSystemService(android.os.PowerManager::class.java)
                 .newWakeLock(android.os.PowerManager.PARTIAL_WAKE_LOCK, "gesitsmid:link").also { it.acquire() }
@@ -221,17 +227,25 @@ class MidService : Service() {
             return START_NOT_STICKY
         }
         if (intent == null) Bike.log("Service restarted by Android (the app had been stopped in the background)")
-        else pairingAllowed = true                                   // started from the app: a pairing request may show
-        goForeground(fromApp = intent != null)
-        holdWakeLock(true)
-        if (worker?.isAlive != true) {
+        if (intent?.getBooleanExtra(EXTRA_TAP, false) == true) { pairingAllowed = true; resumeRequested = true }
+        if (!goForeground(fromApp = intent != null)) { stopSelf(); return START_NOT_STICKY }
+        Demo.clear()
+        if (worker?.isAlive != true || !Bike.running) {
+            // A worker that is still stuck in a Bluetooth call after Disconnect sees the new number and quits.
+            worker?.interrupt()
+            val gen = ++Bike.workerGen
             Bike.running = true
-            worker = Thread({ runLoop() }, "mid-worker").also { it.start() }
+            worker = Thread({ runLoop(gen) }, "mid-worker").also { it.start() }
         }
         return START_STICKY
     }
 
-    private fun goForeground(fromApp: Boolean) {
+    /** False if Android doesn't allow the foreground service right now (e.g. restarted from the background). */
+    private fun goForeground(fromApp: Boolean): Boolean = try { goForegroundOrThrow(fromApp); true } catch (e: Exception) {
+        Bike.log("Could not start in the foreground: ${e.message}"); false
+    }
+
+    private fun goForegroundOrThrow(fromApp: Boolean) {
         val nm = getSystemService(NotificationManager::class.java)
         nm.createNotificationChannel(NotificationChannel(CHANNEL, L.t("Bike connection"), NotificationManager.IMPORTANCE_LOW))
         val n = buildNotif(notifText())
@@ -249,6 +263,7 @@ class MidService : Service() {
 
     /** What the notification says: the real state, never a stale "connected". */
     private fun notifText(): String {
+        if (midHung) return L.t("MID not answering - stop safely, switch the bike off and on")
         if (!Bike.connected) return L.t(if (Bike.running) "Not connected - retrying" else "Stopped")
         val t = Bike.telemetry
         return L.t("Connected") + (t.f("SOC")?.let { "  ·  ${it.toInt()}%" } ?: "") +
@@ -285,7 +300,6 @@ class MidService : Service() {
         val addr = s.address ?: run { setStatus("Choose the bike first"); return null }
         val device = adapter.getRemoteDevice(addr)
         val onData: (ByteArray) -> Unit = { bytes ->
-            Bike.lastRxAt = System.currentTimeMillis()
             synchronized(parser) {
                 parser.feed(bytes, raw = { line ->
                     // Show everything except the routine poll replies in the log/console.
@@ -296,19 +310,22 @@ class MidService : Service() {
                     Bike.ACK_KEYS.firstOrNull { up.contains(it) }?.let { Bike.ackAt[it] = System.currentTimeMillis() }
                 }) { k, v ->
                     if (k == awaitKey) awaitKey = null                       // the answer we were waiting for
+                    if (Replies.clean(k, v) != null) Bike.lastRxAt = System.currentTimeMillis()   // a real answer: the MID is alive
                     if (!Bike.telemetry.offer(k, v) && Replies.clean(k, v) == null) Bike.log("ignored garbled reply: $k=$v")
                 }
             }
         }
-        val onClosed: () -> Unit = { Bike.connected = false; setStatus("Connection lost - retrying") }
+        val onClosed: () -> Unit = { Bike.connected = false; Bike.telemetry.clearLive(); setStatus("Connection lost - retrying") }
         val mayPair = pairingAllowed; pairingAllowed = false          // one pairing request per Connect, at most
         val l: MidLink = if (s.linkType == "ble") BleLink(this, device, onData, onClosed)
             else ClassicLink(device, onData, onClosed, mayPair, s.classicMethod)
         setStatus("Connecting (${l.name}) to ${s.deviceName ?: addr}...")
         return try {
-            l.open(); Bike.connected = true
+            l.open()
             (l as? ClassicLink)?.usedMethod?.let { s.classicMethod = it }   // try the same way first next time
-            setStatus("Connected (${l.name}) to ${s.deviceName ?: addr}"); l
+            setStatus("Link open (${l.name}) - waiting for the MID to answer"); l
+        } catch (e: InterruptedException) {
+            l.close(); throw e
         } catch (e: Exception) {
             if (e.message == ClassicLink.NOT_PAIRED) {
                 if (!Bike.status.startsWith("Bike not paired")) Alerts.notify(this, L.t("Pair the bike again: phone Bluetooth settings → Gesits."))
@@ -318,38 +335,34 @@ class MidService : Service() {
         }
     }
 
-    /** All writes go through here: one at a time, >= 30 ms apart (as GESITS Dashboard does). */
+    /**
+     * Everything sent to the MID goes through here (see Traffic in Safety.kt): only allowed commands, one at a
+     * time, at least 0.5 s apart (at most 2 a second, questions and writes together), after the answer to the
+     * previous question (max 0.3 s), and never while the MID is still taking in and drawing a picture.
+     */
     private fun send(cmd: String) {
         val l = link ?: return
-        // The MID handles one thing at a time; talking over its answer garbles it ("AT+TINV003796.0").
-        // So: wait for the answer to the last question (max 300 ms), keep 80 ms between commands like
-        // GESITS Dashboard, and leave the MID alone for a moment after a picture while it draws it.
+        if (!Traffic.allowed(cmd)) { Bike.log("blocked command: " + cmd.take(24).trim()); return }
         val asked = awaitSince
-        while (awaitKey != null && System.currentTimeMillis() - asked < 300) Thread.sleep(10)
+        while (awaitKey != null && System.currentTimeMillis() - asked < Traffic.ANSWER_WAIT_MS) Thread.sleep(10)
         awaitKey = null
-        val wait = maxOf(lastSend + 80, quietUntil) - System.currentTimeMillis()
+        val wait = Traffic.nextAllowedAt(lastSend, quietUntil) - System.currentTimeMillis()
         if (wait > 0) Thread.sleep(wait)
         l.write(cmd.toByteArray(Charsets.US_ASCII))
         lastSend = System.currentTimeMillis()
-        if (cmd.endsWith("?\r\n") && cmd.startsWith("AT+")) { awaitKey = cmd.substring(3, cmd.length - 3); awaitSince = lastSend }
-        if (cmd.startsWith("AT+MAPS")) quietUntil = lastSend + 600
-        if (cmd.startsWith("AT+")) {
-            val k = cmd.substring(3).substringBefore('=').substringBefore('?').trim()
-            if (k in Bike.ACK_KEYS && cmd.contains('=')) Bike.sentAt[k] = lastSend
-        }
-        // Range: whatever we send may make the MID redraw with its own figure, so ours follows right after
-        // (at most every 120 ms; pictures get their own follow-up once the MID has drawn them).
-        if (cmd.startsWith("AT+TRIP")) lastTripSent = lastSend
-        else if (rangeOn && !cmd.startsWith("AT+MAPS") && lastSend - lastTripSent >= 120) Bike.rangeKm()?.let { send(Mid.trip(it)) }
+        if (cmd.endsWith("?\r\n")) { awaitKey = cmd.substring(3, cmd.length - 3); awaitSince = lastSend }
+        quietUntil = maxOf(quietUntil, lastSend + Traffic.quietAfterMs(cmd))
+        val k = cmd.substring(3).substringBefore('=').substringBefore('?').trim()
+        if (k in Bike.ACK_KEYS && cmd.contains('=')) Bike.sentAt[k] = lastSend
     }
 
     /**
      * The picture to send, or null when nothing visible changed (the MID keeps showing the last one).
      * Unchanged pictures are still re-sent once a minute in case the MID was restarted.
      */
-    private fun picturePayload(s: Settings, now: Long): String? {
+    private fun picturePayload(s: Settings, now: Long, force: Boolean = false): String? {
         val key = frameKey(s)
-        if (key == lastFrameKey && now - lastFrameSent < 60_000) return null
+        if (!force && key == lastFrameKey && now - lastFrameSent < 60_000) return null
         val b64 = renderPayload(s) ?: run {
             if (s.screenMode == "dashboard") Bike.lastFrameInfo = L.t("Dashboard picture too large")
             return null
@@ -400,23 +413,22 @@ class MidService : Service() {
     }
 
     /**
-     * Poll periods (ms) per key. Power/speed often, slow-changing values rarely. Parked: x3.
-     * While the Speedometer or Diagnosis screen is open ([Bike.uiFast]) the live values go faster.
+     * How often each value is asked (ms). Speed often, slow-changing values rarely; parked: x3. The total is
+     * also capped by send() at 2 commands a second, whatever screen is open.
      */
-    private fun pollPeriod(key: String, parked: Boolean, fast: Boolean): Long {
+    private fun pollPeriod(key: String, parked: Boolean): Long {
         val base = when (key) {
-            "SPD" -> if (fast) 300L else 1000L
-            "IBAT" -> if (fast) 500L else 2000L
-            "VBAT" -> if (fast) 1000L else 5000L
+            "SPD" -> 1000L
+            "IBAT" -> 2000L
+            "VBAT" -> 5000L
             "ODO", "PARK" -> 5000L
             "SOC", "MODE" -> 5000L
             "ERR" -> 10_000L
             "TBAT", "TMOT", "TINV" -> 15_000L
             "SOH", "RANGE" -> 60_000L
-            "TRT" -> if (fast) 500L else 30_000L
             else -> 10_000L
         }
-        return if (parked && !fast) base * 3 else base
+        return if (parked) base * 3 else base
     }
 
     private val lastPolled = HashMap<String, Long>()
@@ -430,12 +442,15 @@ class MidService : Service() {
         BikeWidget.update(this)
     }
 
-    private fun runLoop() {
+    private fun runLoop(gen: Int) {
+        val mine = { Bike.running && gen == Bike.workerGen }
+        Bike.workerAlive = true
         val s = Settings(this)
         var navIdx = 0
         var lastFrame = 0L; var lastNav = 0L; var lastTime = 0L
         var lastMinute = -1; var lastLearn = 0L; var lastSave = 0L
-        var backoff = 2000L; var offSince = 0L
+        var backoff = 2000L
+        var noAnswerSince = System.currentTimeMillis()          // for auto-stop: time without any answer from the MID
         Bike.loadRange(s)
         Bike.loadTrip(s)
         Bike.loadBattery(s)
@@ -448,232 +463,280 @@ class MidService : Service() {
                 Bike.energy.seedCapacity(r.sumOf { it.energyWh.toDouble() }.toFloat(), r.sumOf { (it.socStart - it.socEnd).toDouble() }.toFloat())
             }
         }
-        var tripAfterFrame = 0L; var lastNavText = ""; var pendingNav: String? = null; var pendingNavAt = 0L
-        var lastWidget = 0L; var lastNotif = 0L; var lastMapsCheck = 0L; var lastSpeedMsg = 0L; var navPart = 0
-        while (Bike.running) {
-            try {
-                if (link?.isOpen != true) {
-                    val t = System.currentTimeMillis()
-                    if (Bike.connected || lastSave != 0L) { saveState(s); lastSave = 0L }
-                    holdWakeLock(false)                      // bike off: let the phone sleep between retries
-                    // Not connected (e.g. ignition off): close the ride after the idle time.
-                    Bike.recorder.tick(t)?.let { rideFinished(it, s) }
-                    link?.close()
-                    link = openLink(s)
-                    if (link == null) {
-                        if (offSince == 0L) offSince = t
-                        if (s.autoStopMin > 0 && t - offSince > s.autoStopMin * 60_000L) {
-                            setStatus("Bike off for ${s.autoStopMin} min - stopped to save battery")
-                            Bike.running = false
-                            stopForeground(STOP_FOREGROUND_REMOVE); stopSelf()
-                            break
+        val live = Liveness()
+        var hungSince = 0L; var lastProbe = 0L
+        var lastNavText = ""; var pendingNav: String? = null
+        var lastWidget = 0L; var lastNotif = 0L; var lastErrorLog = 0L
+        var lastSpeedSeen: Float? = null; var lastGearSeen: String? = null
+        var answeredBefore = false
+        try {
+            while (mine()) {
+                try {
+                    val tNow = System.currentTimeMillis()
+                    if (s.autoStopMin > 0 && tNow - noAnswerSince > s.autoStopMin * 60_000L) {
+                        setStatus("Bike off for ${s.autoStopMin} min - stopped to save battery")
+                        Bike.running = false
+                        stopForeground(STOP_FOREGROUND_REMOVE); stopSelf()
+                        break
+                    }
+                    if (link?.isOpen != true) {
+                        // No link (start, bike switched off, link dropped): start fresh.
+                        if (midHung) { midHung = false; Bike.log("Link to the MID closed (bike switched off and on?) - starting fresh") }
+                        if (Bike.connected || lastSave != 0L) { saveState(s); lastSave = 0L }
+                        Bike.connected = false
+                        Bike.telemetry.clearLive()
+                        holdWakeLock(false)                      // let the phone sleep between retries
+                        Bike.recorder.tick(tNow)?.let { rideFinished(it, s) }   // close the ride after the idle time
+                        link?.close(); link = null
+                        val l = openLink(s)
+                        if (!mine()) { l?.close(); break }
+                        link = l
+                        if (l == null) {
+                            Thread.sleep(backoff)
+                            backoff = minOf(backoff * 2, 60_000L)   // 2, 4, 8 ... 60 s
+                            continue
                         }
-                        Thread.sleep(backoff)
-                        backoff = minOf(backoff * 2, 60_000L)   // 2, 4, 8 ... 60 s
+                        live.connected(System.currentTimeMillis()); Bike.lastRxAt = 0L; answeredBefore = false
+                        lastTime = 0L; lastMinute = -1
+                        lastFrameKey = ""; lastPolled.clear(); lastSave = System.currentTimeMillis()
+                        lastNavText = ""; pendingNav = null; lastFrame = 0L
+                        synchronized(parser) { parser.reset() }
+                        send(Mid.VERSION_QUERY)            // the only question asked on connect
+                        BikeWidget.update(this)
+                    }
+                    val now = System.currentTimeMillis()
+                    if (Bike.lastRxAt > live.lastAnswerAt) live.answered(Bike.lastRxAt)
+                    if (live.lastAnswerAt > 0L && !midHung) {
+                        noAnswerSince = now
+                        if (!answeredBefore) {
+                            answeredBefore = true
+                            backoff = 2000L                      // only a MID that answers resets the back-off
+                            Bike.connected = true
+                            holdWakeLock(true)
+                            setStatus("Connected to ${s.deviceName ?: "the bike"}")
+                        }
+                    }
+                    if (resumeRequested) {
+                        resumeRequested = false
+                        if (midHung) { midHung = false; hungSince = 0L; live.connected(now); Bike.lastRxAt = 0L; answeredBefore = false; Bike.log("Resumed by Connect") }
+                    }
+
+                    if (midHung) {
+                        // The MID stopped answering while riding: send nothing. One question a minute shows whether it is
+                        // back; switching the bike off and on drops the link and starts fresh; so does tapping Connect.
+                        if (live.lastAnswerAt > hungSince) {
+                            midHung = false; midHungWarned = false; Bike.connected = true
+                            setStatus("The MID answers again - connected")
+                        } else {
+                            if (now - lastProbe >= 60_000) { lastProbe = now; send(Mid.VERSION_QUERY) }
+                            Thread.sleep(1000)
+                            continue
+                        }
+                    }
+                    if (live.silent(now)) {
+                        Bike.connected = false
+                        Bike.telemetry.clearLive()                // no screen keeps showing old values as live
+                        if (answeredBefore && live.verdict(lastSpeedSeen, lastGearSeen) == Liveness.Verdict.HUNG) {
+                            midHung = true; hungSince = now; lastProbe = now
+                            holdWakeLock(false)
+                            if (!midHungWarned) {
+                                Alerts.notify(this, L.t("The MID stopped answering. When it is safe, stop and switch the bike off and on. The app sends nothing until then."))
+                                midHungWarned = true
+                            }
+                            setStatus("The MID stopped answering - app silent (stop safely, switch the bike off and on)")
+                            refreshNotif()
+                        } else {
+                            setStatus(if (answeredBefore) "The bike stopped answering (switched off?) - retrying slowly" else "The MID doesn't answer - retrying slowly")
+                            link?.close(); link = null
+                            Thread.sleep(backoff); backoff = minOf(backoff * 2, 60_000L)
+                        }
                         continue
                     }
-                    backoff = 2000L; offSince = 0L
-                    holdWakeLock(true)
-                    lastFrame = System.currentTimeMillis() - s.frameSeconds * 1000L + 1500   // first frame after some data
-                    lastTime = 0L; lastMinute = -1   // set the MID clock right after connecting
-                    lastFrameKey = ""; lastPolled.clear(); lastSave = System.currentTimeMillis()
-                    Bike.telemetry.raw.clear()         // never pair old values with new ones (range learning)
-                    Bike.lastRxAt = 0L; connectedAt = System.currentTimeMillis()
-                    send(Mid.VERSION_QUERY)            // MID firmware version; nothing else unknown is ever sent
-                    BikeWidget.update(this)
-                }
-                val now = System.currentTimeMillis()
-                // Watchdog: we ask for values every 1-3 s, so a link that stays silent is dead even if
-                // Android still calls it open (e.g. the phone suspended Bluetooth in the background).
-                rangeOn = s.rangeOverride
-                val heard = Bike.lastRxAt
-                if (now - connectedAt > 20_000 && (if (heard > 0L) now - heard > 15_000 else now - connectedAt > 30_000)) {
-                    // The MID stopped answering: it may have hung (seen on a G1: speed and turn signals froze until
-                    // the ignition was switched off and on). Stop sending anything at once, warn, and wait.
-                    Bike.connected = false
+                    val talk = live.canWrite(now)              // writes only while the MID answers
+                    val tm = Bike.telemetry
+                    val parked = tm.gear == "P" && (tm.f("SPD") ?: 0f) < 1f
+                    if (s.screenMode.startsWith("grid") && now > s.gridUntil) { s.screenMode = "off"; Bike.log("Calibration grid finished - pictures off") }
+                    val picturesOn = s.screenMode != "off"
+
+                    while (true) {                             // console questions (anything else is blocked in send)
+                        val cmd = Bike.outbox.poll() ?: break
+                        send(cmd); Bike.log("-> " + cmd.trim())
+                    }
+
+                    // Ask the single most overdue value.
+                    var nextPoll = Long.MAX_VALUE
+                    var due: String? = null; var dueScore = 1.0
+                    for (k in Mid.POLL_KEYS) {
+                        val period = pollPeriod(k, parked)
+                        val last = lastPolled[k] ?: 0L
+                        val score = (now - last).toDouble() / period
+                        if (score >= dueScore) { due = k; dueScore = score }
+                        nextPoll = minOf(nextPoll, last + period)
+                    }
+                    if (due != null) { send(Mid.query(due)); lastPolled[due] = now; nextPoll = now + Traffic.MIN_GAP_MS }
+
+                    // Clock: on connect, whenever the phone's minute changes, and every 30 s as a safety net.
+                    if (s.syncTime && talk) {
+                        val c = Calendar.getInstance()
+                        val minute = c.get(Calendar.HOUR_OF_DAY) * 60 + c.get(Calendar.MINUTE)
+                        if (minute != lastMinute || now - lastTime >= 30_000) {
+                            send(Mid.time(c.get(Calendar.HOUR_OF_DAY), c.get(Calendar.MINUTE)))
+                            lastMinute = minute; lastTime = now
+                        }
+                    }
+                    // Once per second: charts, ride recording, parking, alarms, trip and range learning.
+                    if (now - lastLearn >= 1000) {
+                        tm.f("SPD")?.let { lastSpeedSeen = it }
+                        tm.gear?.let { lastGearSeen = it }
+                        if (Bike.currentSign.update(tm.f("SPD"), tm.ibatRaw)) {
+                            tm.ibatSign = Bike.currentSign.sign
+                            Bike.log(if (tm.ibatSign < 0) "This battery reports current drawn as negative - corrected" else "Battery current sign: normal")
+                        }
+                        if (Bike.currentSign.decided && s.currentSign != Bike.currentSign.save()) s.currentSign = Bike.currentSign.save()
+                        Bike.addSample(Sample(now, tm.f("SPD"), tm.powerW, null, tm.f("TBAT"), tm.f("TMOT"), tm.f("TINV")))
+                        Bike.recorder.sample(now, tm.f("SPD"), tm.f("ODO"), tm.f("SOC"), tm.f("VBAT"), tm.f("IBAT"))
+                            ?.let { rideFinished(it, s) }
+                        val gearNow = tm.gear
+                        if (gearNow == "P" && lastGear == "D") Parking.capture(this, s)    // stand down / parked
+                        if (gearNow != null) lastGear = gearNow
+                        val evs = synchronized(Bike.battery) {
+                            Bike.battery.update(tm.f("SOC"), tm.f("IBAT"), tm.f("SPD"), now, s.chargeTarget.toFloat())
+                        }
+                        evs.forEach { e ->
+                            when (e) {
+                                is BatteryTracker.Event.ChargeStarted -> Bike.log(L.t("Charging started"))
+                                is BatteryTracker.Event.TargetReached -> Alerts.notify(this, L.t("Battery reached") + " ${e.soc.toInt()}%")
+                                is BatteryTracker.Event.ChargeEnded -> Bike.log(L.t("Charging stopped"))
+                            }
+                        }
+                        tm.f("SOH")?.let { soh ->                                   // battery health: one entry per day
+                            val day = SimpleDateFormat("yyyyMMdd", Locale.US).format(Date())
+                            if (lastSohDay != day) {
+                                val log = s.sohLog.split(";").filter { it.isNotBlank() && !it.startsWith(day) } + "$day:${soh.toInt()}"
+                                s.sohLog = log.takeLast(120).joinToString(";"); lastSohDay = day
+                            }
+                        }
+                        Bike.speedWarn.limit = s.speedLimit
+                        Bike.speedWarn.update(tm.f("SPD"), now)
+                        if (now - lastWidget >= 60_000) { BikeWidget.update(this); lastWidget = now }
+                        if (now - lastNotif >= 10_000) { refreshNotif(); lastNotif = now }
+                        if (s.alarmsOn) {
+                            Bike.alarms.socLow = s.socLow
+                            Bike.alarms.evaluate(tm.f("SOC"), tm.f("TBAT"), tm.f("TMOT"), tm.f("SOH"), tm.errors)
+                                .forEach { Alerts.notify(this, it) }
+                        }
+                        synchronized(Bike.trip) { Bike.trip.update(tm.f("ODO"), tm.f("SOC"), tm.f("VBAT"), tm.f("IBAT"), now) }
+                        val chargingNow = synchronized(Bike.battery) { Bike.battery.charging }
+                        synchronized(Bike.range) { Bike.energy.update(tm.f("SOC"), tm.f("VBAT"), tm.f("IBAT"), tm.f("ODO"), chargingNow, now) }
+                        val odo = tm.f("ODO"); val soc = tm.f("SOC")
+                        if (odo != null && soc != null) {
+                            val learned = synchronized(Bike.range) {
+                                Bike.range.priorKmPerPercent = Bike.priorKmPerPercent(s)
+                                Bike.range.update(odo, soc, now)
+                            }
+                            if (learned) Bike.log("Range learned: " + synchronized(Bike.range) { Bike.range.describe() })
+                            if (learned || now - lastSave >= 60_000) { saveState(s); lastSave = now }
+                        }
+                        lastLearn = now
+                    }
+
+                    // Text line. The MID draws it over the picture without erasing old characters, so texts change
+                    // rarely, a change is sent after a blank (no pictures) or on top of a fresh picture (pictures on),
+                    // and a text that ended is cleared.
+                    val nav = if (s.navOn && Bike.navFresh(now)) Bike.nav else null
+                    val own = Mid.splitNav(s.navText)
+                    val line: String? = when {
+                        Bike.speedWarn.active -> "! " + L.t("SLOW DOWN") + " ${s.speedLimit}"
+                        nav != null -> (navTurnWord(nav.turn) + " " + nav.street).trim().take(Mid.NAV_MAX)   // distance: in the picture
+                        own.size > 1 -> null                                                     // your own long text rotates
+                        own.size == 1 -> own[0]
+                        s.rangeLine -> Bike.rangeKm()?.let { (if (L.indo) "JARAK " else "RANGE ") + Math.round(it) + " km" }
+                            ?: if (s.navDate) Mid.dateText() else null
+                        s.navDate -> Mid.dateText()
+                        else -> null
+                    }
+                    if (talk) {
+                        if (line == null && own.size > 1) {
+                            if (now - lastNav >= 5000) {
+                                navIdx %= own.size
+                                val part = own[navIdx++]
+                                if (picturesOn) pendingNav = part
+                                else { send(Mid.nav("")); send(Mid.nav(part)); lastNavText = part; lastNav = now }
+                            }
+                        } else if ((line ?: "") != lastNavText) {
+                            when {
+                                line == null -> { send(Mid.nav("")); lastNavText = ""; lastNav = now; pendingNav = null }
+                                picturesOn -> pendingNav = line                                     // goes with the next picture
+                                else -> { send(Mid.nav("")); send(Mid.nav(line)); lastNavText = line; lastNav = now }
+                            }
+                        } else if (line != null && !picturesOn && now - lastNav >= 60_000) {
+                            send(Mid.nav(line)); lastNav = now                                    // same text: safe to repeat
+                        }
+                    }
+
+                    // Pictures: only if switched on, at most one every 10 s, never bigger than the MID can take.
+                    val frameMs = maxOf(s.frameSeconds * 1000L, Traffic.PICTURE_MIN_INTERVAL_MS)
+                    if (talk && picturesOn && now - lastFrameSent >= frameMs && (pendingNav != null || now - lastFrame >= frameMs)) {
+                        lastFrame = now
+                        val b64 = try { picturePayload(s, now, force = pendingNav != null) } catch (e: Exception) { Bike.log("Picture failed: ${e.message}"); null }
+                        if (b64 != null && b64.length > Traffic.PICTURE_MAX_CHARS) {
+                            Bike.lastFrameInfo = L.t("Picture too big for the MID - not sent")
+                        } else if (b64 != null) {
+                            val t0 = System.currentTimeMillis()
+                            send(Mid.maps(b64)); lastFrameSent = now
+                            // the picture wiped the text area: draw the text again on top of it
+                            (pendingNav ?: lastNavText.takeIf { it.isNotEmpty() })?.let { send(Mid.nav(it)); lastNavText = it; lastNav = now }
+                            pendingNav = null
+                            Bike.lastFrameInfo = (if (L.indo) "Gambar terkirim: " else "Picture sent: ") + "${b64.length} " + (if (L.indo) "karakter dalam " else "chars in ") + "${System.currentTimeMillis() - t0} ms"
+                        }
+                    }
+
+                    // Sleep until the next thing is due; a console question wakes us early.
+                    val nextDue = minOf(nextPoll, lastLearn + 1000,
+                        if (talk && picturesOn) maxOf(lastFrame + frameMs, lastFrameSent + frameMs) else Long.MAX_VALUE)
+                    val wait = (nextDue - System.currentTimeMillis()).coerceIn(100L, 1000L)
+                    Bike.outbox.poll(wait, java.util.concurrent.TimeUnit.MILLISECONDS)?.let { cmd ->
+                        send(cmd); Bike.log("-> " + cmd.trim())
+                    }
+                } catch (e: InterruptedException) {
+                    break
+                } catch (e: java.io.IOException) {
+                    // The Bluetooth link failed: drop it and reconnect with a growing pause.
+                    setStatus("Connection error: ${e.message} - reconnecting")
+                    Bike.connected = false; Bike.telemetry.clearLive()
                     link?.close(); link = null
-                    if (!midHungWarned) {
-                        Alerts.notify(this, L.t("The MID stopped answering. When it is safe, stop and switch the bike off and on. The app stays quiet for 2 minutes."))
-                        midHungWarned = true
-                    }
-                    setStatus("The MID stopped answering - pausing 2 min (switch the bike off and on)")
-                    Thread.sleep(120_000)
-                    continue
+                    try { Thread.sleep(backoff) } catch (_: InterruptedException) { break }
+                    backoff = minOf(backoff * 2, 60_000L)
+                } catch (e: Exception) {
+                    // A bug elsewhere (drawing, files...): keep the link, note it, carry on.
+                    val n = System.currentTimeMillis()
+                    if (n - lastErrorLog > 60_000) { Bike.log("Error: ${e.javaClass.simpleName}: ${e.message}"); lastErrorLog = n }
+                    try { Thread.sleep(1000) } catch (_: InterruptedException) { break }
                 }
-                if (heard > 0L) midHungWarned = false
-                // Until the MID has answered on this connection, only questions are sent (no picture, text, clock).
-                val talk = heard > 0L
-                val tm = Bike.telemetry
-                val parked = tm.gear == "P" && (tm.f("SPD") ?: 0f) < 1f
-                val fast = Bike.uiFast
-
-                while (true) {
-                    val cmd = Bike.outbox.poll() ?: break
-                    send(cmd)
-                    if (!cmd.startsWith("AT+MAPS")) Bike.log("-> " + cmd.trim())
-                }
-
-                // Poll the single most overdue key (one command in flight at a time).
-                var nextPoll = Long.MAX_VALUE
-                var due: String? = null; var dueScore = 1.0
-                for (k in Mid.POLL_KEYS) {
-                    val period = pollPeriod(k, parked, fast)
-                    val last = lastPolled[k] ?: 0L
-                    val score = (now - last).toDouble() / period
-                    if (score >= dueScore) { due = k; dueScore = score }
-                    nextPoll = minOf(nextPoll, last + period)
-                }
-                if (due != null) { send(Mid.query(due)); lastPolled[due] = now; nextPoll = now + 200 }
-
-                // Clock: on connect, whenever the phone's minute changes, and every 30 s as a safety net.
-                if (s.syncTime && talk) {
-                    val c = Calendar.getInstance()
-                    val minute = c.get(Calendar.HOUR_OF_DAY) * 60 + c.get(Calendar.MINUTE)
-                    if (minute != lastMinute || now - lastTime >= 30_000) {
-                        send(Mid.time(c.get(Calendar.HOUR_OF_DAY), c.get(Calendar.MINUTE)))
-                        lastMinute = minute; lastTime = now
-                    }
-                }
-                // Once per second: charts, ride recording, parking, alarms, trip and range learning.
-                if (now - lastLearn >= 1000) {
-                    if (Bike.currentSign.update(tm.f("SPD"), tm.ibatRaw)) {
-                        tm.ibatSign = Bike.currentSign.sign
-                        Bike.log(if (tm.ibatSign < 0) "This battery reports current drawn as negative - corrected" else "Battery current sign: normal")
-                    }
-                    if (Bike.currentSign.decided && s.currentSign != Bike.currentSign.save()) s.currentSign = Bike.currentSign.save()
-                    Bike.addSample(Sample(now, tm.f("SPD"), tm.powerW, tm.f("TRT"), tm.f("TBAT"), tm.f("TMOT"), tm.f("TINV")))
-                    Bike.recorder.sample(now, tm.f("SPD"), tm.f("ODO"), tm.f("SOC"), tm.f("VBAT"), tm.f("IBAT"))
-                        ?.let { rideFinished(it, s) }
-                    val gearNow = tm.gear
-                    if (gearNow == "P" && lastGear == "D") Parking.capture(this, s)    // stand down / parked
-                    if (gearNow != null) lastGear = gearNow
-                    val evs = synchronized(Bike.battery) {
-                        Bike.battery.update(tm.f("SOC"), tm.f("IBAT"), tm.f("SPD"), now, s.chargeTarget.toFloat())
-                    }
-                    evs.forEach { e ->
-                        when (e) {
-                            is BatteryTracker.Event.ChargeStarted -> Bike.log(L.t("Charging started"))
-                            is BatteryTracker.Event.TargetReached -> Alerts.notify(this, L.t("Battery reached") + " ${e.soc.toInt()}%")
-                            is BatteryTracker.Event.ChargeEnded -> Bike.log(L.t("Charging stopped"))
-                        }
-                    }
-                    tm.f("SOH")?.let { soh ->                                   // battery health: one entry per day
-                        val day = SimpleDateFormat("yyyyMMdd", Locale.US).format(Date())
-                        if (lastSohDay != day) {
-                            val log = s.sohLog.split(";").filter { it.isNotBlank() && !it.startsWith(day) } + "$day:${soh.toInt()}"
-                            s.sohLog = log.takeLast(120).joinToString(";"); lastSohDay = day
-                        }
-                    }
-                    Bike.speedWarn.limit = s.speedLimit
-                    Bike.speedWarn.update(tm.f("SPD"), now)
-                    if (now - lastWidget >= 60_000) { BikeWidget.update(this); lastWidget = now }
-                    if (now - lastNotif >= 10_000) { refreshNotif(); lastNotif = now }
-                    if (s.alarmsOn) {
-                        Bike.alarms.socLow = s.socLow
-                        Bike.alarms.evaluate(tm.f("SOC"), tm.f("TBAT"), tm.f("TMOT"), tm.f("SOH"), tm.errors)
-                            .forEach { Alerts.notify(this, it) }
-                    }
-                    synchronized(Bike.trip) { Bike.trip.update(tm.f("ODO"), tm.f("SOC"), tm.f("VBAT"), tm.f("IBAT"), now) }
-                    val chargingNow = synchronized(Bike.battery) { Bike.battery.charging }
-                    synchronized(Bike.range) { Bike.energy.update(tm.f("SOC"), tm.f("VBAT"), tm.f("IBAT"), tm.f("ODO"), chargingNow, now) }
-                    val odo = tm.f("ODO"); val soc = tm.f("SOC")
-                    if (odo != null && soc != null) {
-                        val learned = synchronized(Bike.range) {
-                            Bike.range.priorKmPerPercent = Bike.priorKmPerPercent(s)
-                            Bike.range.update(odo, soc, now)
-                        }
-                        if (learned) Bike.log("Range learned: " + synchronized(Bike.range) { Bike.range.describe() })
-                        if (learned || now - lastSave >= 60_000) { saveState(s); lastSave = now }
-                    }
-                    lastLearn = now
-                }
-                // Range: the MID keeps putting its own figure back (on its own timer and whenever it redraws
-                // after a picture), so ours is re-sent every 0.25 s and again once the picture has been drawn.
-                val rangeReady = rangeOn
-                if (talk && rangeReady && (now - lastTripSent >= TRIP_EVERY_MS || (tripAfterFrame > 0L && now >= tripAfterFrame))) {
-                    Bike.rangeKm()?.let { send(Mid.trip(it)) }
-                    tripAfterFrame = 0L
-                }
-                // Text line. The MID draws it over the picture without erasing the old characters, so a changed
-                // text lands on top of the previous one ("range 5/46 km"). Hence: texts that change rarely, and each
-                // change goes out right after a fresh picture (which wipes the area); without pictures, a blank first.
-                val nav = if (s.navOn && Bike.navFresh(now)) Bike.nav else null
-                val own = Mid.splitNav(s.navText)
-                val line: String? = when {
-                    Bike.speedWarn.active -> "! " + L.t("SLOW DOWN") + " ${s.speedLimit}"
-                    nav != null -> (navTurnWord(nav.turn) + " " + nav.street).trim().take(Mid.NAV_MAX)   // distance: in the picture
-                    own.size > 1 -> null                                                     // your own long text rotates
-                    own.size == 1 -> own[0]
-                    s.rangeLine -> Bike.rangeKm()?.let { (if (L.indo) "JARAK " else "RANGE ") + Math.round(it) + " km" }
-                        ?: if (s.navDate) Mid.dateText() else null
-                    s.navDate -> Mid.dateText()
-                    else -> null
-                }
-                if (!talk) {
-                    // wait for the MID's first answer
-                } else if (line == null && own.size > 1) {
-                    if (now - lastNav >= 5000) { navIdx %= own.size; send(Mid.nav(own[navIdx++])); lastNav = now; lastNavText = "" }
-                } else if (line != null && line != lastNavText) {
-                    if (s.screenMode != "off") {
-                        if (pendingNav != line) { pendingNav = line; pendingNavAt = now; lastFrameKey = ""; lastFrame = 0L }
-                    } else {
-                        send(Mid.nav("")); send(Mid.nav(line)); lastNavText = line; lastNav = now
-                    }
-                } else if (line != null && now - lastNav >= 60_000) {
-                    send(Mid.nav(line)); lastNav = now                                    // same text: safe to repeat
-                }
-                val mapsSent = Bike.sentAt["MAPS"] ?: 0L
-                val mapsAck = Bike.ackAt["MAPS"] ?: 0L
-                if (mapsAck > 0L && mapsSent > mapsAck && now - mapsSent > 6000 && mapsSent != lastMapsCheck) {
-                    lastMapsCheck = mapsSent
-                    lastFrameKey = ""                      // MID did not confirm the last picture: send it again
-                    Bike.log("MID did not confirm the picture - resending")
-                }
-                if (talk && s.screenMode != "off" && now - lastFrame >= s.frameSeconds * 1000L) {
-                    val t0 = System.currentTimeMillis()
-                    val b64 = picturePayload(s, now)
-                    if (b64 != null) {
-                        send(Mid.maps(b64))
-                        pendingNav?.let { send(Mid.nav(it)); lastNavText = it; lastNav = now; pendingNav = null }
-                        if (rangeReady) { Bike.rangeKm()?.let { send(Mid.trip(it)) }; tripAfterFrame = System.currentTimeMillis() + 400 }
-                        Bike.lastFrameInfo = (if (L.indo) "Gambar terkirim: " else "Picture sent: ") + "${b64.length} " + (if (L.indo) "karakter dalam " else "chars in ") + "${System.currentTimeMillis() - t0} ms"
-                        lastFrameSent = now
-                    }
-                    lastFrame = System.currentTimeMillis()
-                }
-                pendingNav?.let { if (talk && now - pendingNavAt > 5000) { send(Mid.nav("")); send(Mid.nav(it)); lastNavText = it; lastNav = now; pendingNav = null } }
-
-                // Sleep until the next thing is due; a command from the UI wakes us early.
-                val nextDue = minOf(nextPoll, lastLearn + 1000, if (rangeReady) minOf(lastTripSent + TRIP_EVERY_MS, if (tripAfterFrame > 0L) tripAfterFrame else Long.MAX_VALUE) else Long.MAX_VALUE,
-                    lastFrame + s.frameSeconds * 1000L)
-                val wait = (nextDue - System.currentTimeMillis()).coerceIn(30L, 1000L)
-                Bike.outbox.poll(wait, java.util.concurrent.TimeUnit.MILLISECONDS)?.let { cmd ->
-                    send(cmd)
-                    if (!cmd.startsWith("AT+MAPS")) Bike.log("-> " + cmd.trim())
-                }
-            } catch (_: InterruptedException) {
-                break
-            } catch (e: Exception) {
-                setStatus("Error: ${e.message} - reconnecting")
-                Bike.connected = false
+            }
+        } finally {
+            if (gen == Bike.workerGen) {
+                Bike.recorder.finish(System.currentTimeMillis())?.let { rideFinished(it, s) }
+                saveState(s)
+                holdWakeLock(false)
                 link?.close(); link = null
-                try { Thread.sleep(2000) } catch (_: InterruptedException) { break }
+                Bike.connected = false
+                Bike.telemetry.clearLive()
+                midHung = false
+                if (!Bike.status.startsWith("Bike off")) setStatus("Stopped")
+                Bike.workerAlive = false
+            } else {
+                link?.close(); link = null                 // an old worker: leave everything to the new one
             }
         }
-        Bike.recorder.finish(System.currentTimeMillis())?.let { rideFinished(it, s) }
-        saveState(s)
-        holdWakeLock(false)
-        link?.close(); link = null
-        Bike.connected = false
-        if (!Bike.status.startsWith("Bike off")) setStatus("Stopped")
     }
 
     private var lastGear: String? = null
     @Volatile private var connectedAt = 0L
     @Volatile private var midHungWarned = false
+    @Volatile private var midHung = false
+    @Volatile private var resumeRequested = false
     @Volatile private var pairingAllowed = false   // see ClassicLink.allowPairing
-    @Volatile private var rangeOn = false       // send our range to the MID (setting on, no range test running)
-    private var lastTripSent = 0L
     private var lastSohDay: String? = null
 
     private fun navTurnWord(t: NavParser.Turn) = L.t(when (t) {

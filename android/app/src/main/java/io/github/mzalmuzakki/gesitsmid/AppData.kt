@@ -57,7 +57,7 @@ object Alerts {
     /** AlarmMonitor messages are "Battery low: 19%" etc.; translate the part before the colon. */
     private fun localize(msg: String): String {
         val i = msg.indexOf(':')
-        return if (i > 0) L.t(msg.substring(0, i)) + msg.substring(i) else L.t(msg)
+        return if (i > 0) L.t(msg.substring(0, i)) + ": " + msg.substring(i + 1).trim().split(", ").joinToString(", ") { L.t(it) } else L.t(msg)
     }
 
     fun notify(ctx: Context, message: String) {
@@ -107,8 +107,19 @@ object Parking {
 /** Fake live data and rides for screenshots. Everything stays in memory: nothing is written to storage. */
 object Demo {
     @Volatile var rides: List<Ride>? = null
+    @Volatile var active = false
+
+    /** Throw the demo data away (the service calls this before it talks to a real bike). */
+    fun clear() {
+        if (!active) return
+        active = false; rides = null
+        Bike.telemetry.clearLive(); Bike.nav = null; Bike.lastFrame = null
+        synchronized(Bike.samples) { Bike.samples.clear() }
+        synchronized(Bike.trip) { Bike.trip.clear() }
+    }
 
     fun load() {
+        active = true
         val t = Bike.telemetry
         listOf("SPD" to "38", "SOC" to "78", "SOH" to "96", "ODO" to "3812.4", "MODE" to "1", "PARK" to "0",
             "VBAT" to "79.6", "IBAT" to "21.5", "TBAT" to "36", "TMOT" to "54", "TINV" to "47", "TRT" to "42",

@@ -2,18 +2,22 @@ name: Android APK
 
 on:
   push:
+    # Only main publishes the APK riders download; other branches never replace it.
+    branches: [main]
     paths:
       - "android/**"
       - ".github/workflows/android.yml"
   workflow_dispatch:
 
+# Read-only by default; only the publishing job may write releases.
 permissions:
-  contents: write
+  contents: read
 
-# A newer push cancels a run still in progress (two runs replacing the same release page clash).
+# Runs queue instead of cancelling each other, so a publish step is never cut off half-way
+# (which could leave no release, or a draft nobody can download).
 concurrency:
-  group: android-${{ github.ref }}
-  cancel-in-progress: true   # to publish the APK on the "android-latest" release
+  group: android-release
+  cancel-in-progress: false
 
 jobs:
   build:
@@ -26,19 +30,19 @@ jobs:
       sha: ${{ steps.apk.outputs.sha }}
       signed: ${{ steps.apk.outputs.signed }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
         with:
           distribution: temurin
           java-version: "17"
 
-      - uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4
         with:
           gradle-version: "8.9"
 
       # Keep the same debug signing key between builds so new APKs install over old ones.
-      - uses: actions/cache@v4
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: ~/.android/debug.keystore
           key: android-debug-keystore-v1
@@ -64,6 +68,10 @@ jobs:
           GESITS_KEYSTORE_PASSWORD: ${{ secrets.GESITS_KEYSTORE_PASSWORD }}
         run: gradle -p android testReleaseUnitTest assembleRelease --no-daemon
 
+      - name: Remove the signing key from the runner
+        if: always()
+        run: rm -f "$RUNNER_TEMP/own.p12"
+
       - name: Name and checksum
         id: apk
         run: |
@@ -76,7 +84,7 @@ jobs:
           echo "signed=$SIGNED_WITH" >> "$GITHUB_OUTPUT"
           ls -la "$APK"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: ${{ steps.apk.outputs.file }}
           path: ${{ steps.apk.outputs.file }}
@@ -87,10 +95,12 @@ jobs:
     needs: build
     if: github.repository == 'mzalmuzakki/GESITS_MID_pub'
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: ${{ needs.build.outputs.apk }}
           path: apk
@@ -101,7 +111,7 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
 
-      - uses: reactivecircus/android-emulator-runner@v2
+      - uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
         with:
           api-level: 34
           target: google_apis
@@ -119,10 +129,10 @@ jobs:
           gh release create android-latest "apk/${{ needs.build.outputs.apk }}" \
             --prerelease --target "${{ github.sha }}" \
             --title "Gesits MID ${{ needs.build.outputs.version }} (build ${{ github.run_number }})" \
-            --notes "Built by GitHub Actions from commit ${{ github.sha }}. Passed the emulator test (no crashes on any screen).
+            --notes "Built by GitHub Actions from commit ${{ github.sha }}. Unit tests passed; every screen was opened in an Android 14 emulator with demo data without a crash or freeze. NOT tested by this build: the Bluetooth connection and the bike. Test on the bike while parked first; if the MID ever freezes, stop safely and switch the bike off and on.
           SHA-256: ${{ needs.build.outputs.sha }}
           Signed with: ${{ needs.build.outputs.signed }}
-          Permissions: Bluetooth, notifications, foreground service; location only if parking is on; notification access only if directions are on. No internet."
+          Permissions: Bluetooth, foreground service; notifications (optional); location only for 'Remember where I parked' (and, on Android 8-11, to scan for a Bluetooth LE bike); notification access only for directions. No internet."
           # gh uploads to a draft and publishes it at the end; once that last step was lost (build 28),
           # leaving a draft nobody could download. Make sure it is published, and check.
           gh release edit android-latest --draft=false --prerelease

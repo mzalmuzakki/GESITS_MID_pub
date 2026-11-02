@@ -16,6 +16,21 @@ object L {
 
     fun t(s: String): String = if (indo) ID[s] ?: s else s
 
+    /** The connection status line (set in English by the service, with names/numbers in it). */
+    fun status(s: String): String {
+        if (!indo) return s
+        ID[s]?.let { return it }
+        val pre = listOf(
+            "Connecting (" to "Menghubungkan (", "Link open (" to "Tautan terbuka (", "Connected to " to "Terhubung ke ",
+            "Connect failed: " to "Gagal terhubung: ", "Connection error: " to "Kesalahan koneksi: ",
+            "Bike off for " to "Motor mati selama ",
+        )
+        for ((en, id) in pre) if (s.startsWith(en)) return id + s.substring(en.length)
+            .replace("waiting for the MID to answer", "menunggu jawaban MID").replace(" - reconnecting", " - menghubungkan ulang")
+            .replace(" min - stopped to save battery", " menit - dihentikan untuk menghemat baterai")
+        return s
+    }
+
     private val ID = mapOf(
         // navigation / shell
         "Home" to "Beranda", "Trips" to "Perjalanan", "Tools" to "Alat",
@@ -52,6 +67,56 @@ object L {
         "Save text" to "Simpan teks", "Text cleared" to "Teks dihapus",
         "Pair the bike again: phone Bluetooth settings → Gesits." to "Pasangkan ulang motor: pengaturan Bluetooth HP → Gesits.",
         "SLOW DOWN" to "PELAN",
+        "Ask the MID a question, e.g. AT+SPD?. Only questions can be sent from here: writes (odometer, range...) are refused, because an unknown write froze a G1's MID." to
+            "Ajukan pertanyaan ke MID, mis. AT+SPD?. Dari sini hanya pertanyaan yang bisa dikirim: penulisan (odometer, jarak...) ditolak, karena penulisan tak dikenal membuat MID G1 macet.",
+        "Only questions like AT+SPD? can be sent" to "Hanya pertanyaan seperti AT+SPD? yang bisa dikirim",
+        "Copy log" to "Salin log", "Log copied" to "Log disalin",
+        "Alarms (phone notifications)" to "Alarm (notifikasi HP)",
+        "Notify me about low battery, hot battery (> 45°C) or motor (> 85°C), battery health below 75%, and MID errors" to
+            "Beri tahu saya saat baterai lemah, baterai panas (> 45°C) atau motor panas (> 85°C), kesehatan baterai di bawah 75%, dan error MID",
+        "Low battery alarm below (%)" to "Alarm baterai lemah di bawah (%)",
+        "Alarms work while the app is connected (also with the screen off)." to "Alarm berfungsi selama aplikasi terhubung (juga saat layar mati).",
+        "Unknown code - note it and ask a workshop." to "Kode tidak dikenal - catat dan tanyakan ke bengkel.",
+        "Inverter over temperature" to "Inverter terlalu panas", "Motor over temperature" to "Motor terlalu panas",
+        "Motor fault" to "Gangguan motor", "Hall sensor fault" to "Gangguan sensor hall", "Throttle fault" to "Gangguan gas",
+        "Controller fault" to "Gangguan kontroler", "Over voltage" to "Tegangan berlebih", "Under voltage" to "Tegangan kurang",
+        "Throttle signal abnormal (unofficial)" to "Sinyal gas tidak normal (tidak resmi)",
+        "Petrol" to "Bensin", "minus electricity" to "dikurangi listrik", "Longest ride" to "Perjalanan terjauh",
+        "Most efficient" to "Paling hemat", "Top speed" to "Kecepatan tertinggi", "Export failed" to "Ekspor gagal",
+        "No rides yet. Rides are saved automatically while the app is connected: a ride starts when you move and ends after 5 minutes stopped." to
+            "Belum ada perjalanan. Perjalanan disimpan otomatis selama aplikasi terhubung: dimulai saat Anda bergerak dan berakhir setelah 5 menit berhenti.",
+        "Let the bike rest until the inverter cools down; avoid long heavy load." to "Istirahatkan motor sampai inverter dingin; hindari beban berat lama.",
+        "Rest the motor until its temperature is back to normal." to "Istirahatkan motor sampai suhunya normal lagi.",
+        "Check motor cables and connectors; visit a Gesits workshop if it repeats." to "Periksa kabel dan konektor motor; ke bengkel Gesits jika berulang.",
+        "Check the motor's hall-sensor connector (loose or dirty)." to "Periksa konektor sensor hall motor (longgar atau kotor).",
+        "Check throttle position and cable; make sure nothing is stuck." to "Periksa posisi dan kabel gas; pastikan tidak ada yang macet.",
+        "Restart the system (off/on). If it stays, visit a Gesits workshop." to "Nyalakan ulang sistem (mati/hidup). Jika tetap, ke bengkel Gesits.",
+        "Check the charger and mains voltage." to "Periksa charger dan tegangan listrik rumah.",
+        "Charge the battery: its voltage is too low." to "Isi baterai: tegangannya terlalu rendah.",
+        "Seen together with real throttle problems (ERR=0800). Check throttle cable/connector; report the code to a workshop." to
+            "Muncul bersama masalah gas sungguhan (ERR=0800). Periksa kabel/konektor gas; laporkan kodenya ke bengkel.",
+        "OK - no errors" to "OK - tidak ada error", "Waiting for data..." to "Menunggu data...", "Speed" to "Kecepatan",
+        "Battery" to "Baterai", "health" to "kesehatan", "Temps" to "Suhu",
+        "Connection lost - retrying" to "Koneksi terputus - mencoba lagi",
+        "The MID stopped answering - app silent (stop safely, switch the bike off and on)" to
+            "MID berhenti merespons - aplikasi diam (berhenti dengan aman, matikan lalu nyalakan motor)",
+        "The bike stopped answering (switched off?) - retrying slowly" to "Motor berhenti merespons (dimatikan?) - mencoba lagi perlahan",
+        "The MID doesn't answer - retrying slowly" to "MID tidak menjawab - mencoba lagi perlahan",
+        "The MID answers again - connected" to "MID menjawab lagi - terhubung",
+        "Bike not paired with this phone - pair it again in Bluetooth settings, then tap Connect" to
+            "Motor belum dipasangkan dengan HP ini - pasangkan lagi di pengaturan Bluetooth, lalu ketuk Hubungkan",
+        "Bluetooth is off" to "Bluetooth mati", "Choose the bike first" to "Pilih motor dulu", "Not connected" to "Tidak terhubung",
+        "Demo data (no bike connected)" to "Data demo (tidak ada motor terhubung)",
+        "MID not answering" to "MID tidak merespons",
+        "MID not answering - stop safely, switch the bike off and on" to "MID tidak merespons - berhenti dengan aman, matikan lalu nyalakan motor",
+        "The MID stopped answering. When it is safe, stop and switch the bike off and on. The app sends nothing until then." to
+            "MID berhenti merespons. Jika aman, berhenti lalu matikan dan nyalakan motor. Aplikasi tidak mengirim apa pun sampai saat itu.",
+        "NO DATA - don't rely on this speed" to "TIDAK ADA DATA - jangan andalkan kecepatan ini",
+        "Picture too big for the MID - not sent" to "Gambar terlalu besar untuk MID - tidak dikirim",
+        "Demo is not available while connected to a bike" to "Demo tidak tersedia saat terhubung ke motor",
+        "Grid goes to the MID for 2 minutes" to "Grid tampil di MID selama 2 menit",
+        "Large grid goes to the MID for 2 minutes" to "Grid besar tampil di MID selama 2 menit",
+        "Save position" to "Simpan posisi", "inverter" to "inverter",
         "RANGE writes are blocked: they made a G1's MID stop answering" to "Penulisan RANGE diblokir: membuat MID G1 berhenti merespons",
         "Send your own AT command, e.g. AT+SPD?. Queries ending in ? only read. Odometer and RANGE writes are blocked (RANGE froze a G1's MID)." to
             "Kirim perintah AT sendiri, mis. AT+SPD?. Pertanyaan berakhiran ? hanya membaca. Penulisan odometer dan RANGE diblokir (RANGE membuat MID G1 macet).",

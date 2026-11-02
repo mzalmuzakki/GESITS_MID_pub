@@ -93,5 +93,16 @@ class RangeTest {
         assertTrue(r.fullyLearned)
         assertTrue(abs(r.rangeKm(88f) - 97f) < 8f, "range ${r.rangeKm(88f)}")
     }
-}
 
+    @Test fun aBatteryPercentBounceDoesNotHalveTheRange() {
+        val r = RangeEstimator(priorKmPerPercent = 0.5f, windowPercent = 40f, priorWeightPercent = 5f, fadePercent = 10f)
+        var odo = 1000f; var t = 0L
+        for (pct in 100 downTo 80) {                             // 1.5 km per 1 %, bouncing back once at every step
+            r.update(odo, pct.toFloat(), t); t += 30_000
+            r.update(odo + 0.2f, (pct + 1).coerceAtMost(100).toFloat(), t); t += 30_000
+            odo += 1.5f
+        }
+        r.update(odo, 79f, t)
+        assertTrue(abs(r.kmPerPercent - 1.5f) < 0.2f, "km per 1 % ${r.kmPerPercent}")
+    }
+}

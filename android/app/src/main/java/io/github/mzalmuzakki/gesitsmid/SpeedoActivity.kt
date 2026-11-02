@@ -59,10 +59,11 @@ class SpeedoView(ctx: Context) : View(ctx) {
         val gear = t.gear ?: "-"
         c.drawText(gear, w - u * 3.6f, u * 0.9f, p(u * 0.6f, if (gear == "P") AMBER else if (gear == "D") GREEN else MUTED, Paint.Align.RIGHT))
 
-        // centre: speed
-        val spd = t.f("SPD")
-        c.drawText(spd?.toInt()?.toString() ?: "--", w * 0.5f, h * 0.62f, p(u * 4.2f, TEXT, Paint.Align.CENTER))
-        c.drawText("km/h", w * 0.5f, h * 0.62f + u * 0.8f, p(u * 0.5f, MUTED, Paint.Align.CENTER))
+        // centre: speed - only a reading from the last 3 s; otherwise a clear NO DATA, never a frozen number
+        val spd = if (Bike.connected && t.fresh("SPD", 3000)) t.f("SPD") else null
+        c.drawText(spd?.toInt()?.toString() ?: "--", w * 0.5f, h * 0.62f, p(u * 4.2f, if (spd == null) RED else TEXT, Paint.Align.CENTER))
+        c.drawText(if (spd == null) L.t("NO DATA - don't rely on this speed") else "km/h", w * 0.5f, h * 0.62f + u * 0.8f,
+            p(u * 0.5f, if (spd == null) RED else MUTED, Paint.Align.CENTER))
 
         // left: battery
         val soc = t.f("SOC")
@@ -90,8 +91,8 @@ class SpeedoView(ctx: Context) : View(ctx) {
 
         // bottom: temperatures or error
         val errs = t.errors
-        val bottom = if (errs.isNotEmpty()) "⚠ " + errs.first()
-            else "battery ${t.raw["TBAT"] ?: "--"}°  motor ${t.raw["TMOT"] ?: "--"}°  inverter ${t.raw["TINV"] ?: "--"}°C"
+        val bottom = if (errs.isNotEmpty()) "⚠ " + L.t(errs.first())
+            else "${L.t("battery")} ${t.raw["TBAT"] ?: "--"}°  ${L.t("motor")} ${t.raw["TMOT"] ?: "--"}°  ${L.t("inverter")} ${t.raw["TINV"] ?: "--"}°C"
         c.drawText(bottom, w * 0.5f, h - u * 0.4f, p(u * 0.4f, if (errs.isNotEmpty()) RED else MUTED, Paint.Align.CENTER))
         c.drawText(L.t("tap to close"), w - u * 0.5f, h - u * 0.4f, p(u * 0.25f, Color.rgb(70, 76, 88), Paint.Align.RIGHT))
 

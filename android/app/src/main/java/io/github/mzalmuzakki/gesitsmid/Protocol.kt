@@ -13,24 +13,19 @@ object Mid {
     const val BLE_NAME = "GESITS"
 
     const val NAV_MAX = 20
-    const val MAPS_MAX_CHARS = 7000
+    const val MAPS_MAX_CHARS = Traffic.PICTURE_MAX_CHARS
     /** Picture size for AT+MAPS. GRID Mobile's built-in MID pictures are all 320x128, which is
      *  the visible map area; bigger pictures (350x220) spill under the MID's own widgets. */
     const val FRAME_W = 320
     const val FRAME_H = 128
 
-    /** One key is polled every 200 ms, round robin. */
+    /** Keys asked in turn, the most overdue first (periods in MidService.pollPeriod, at most 2 commands a second). */
     val POLL_KEYS = listOf("SPD", "IBAT", "VBAT", "SOC", "ODO", "MODE", "PARK", "ERR", "TBAT", "TMOT", "TINV", "SOH", "RANGE")
 
     fun query(key: String) = "AT+$key?\r\n"
     fun time(hour: Int, minute: Int) = String.format(Locale.US, "AT+TIME=\"%02d%02d\"\r\n", hour, minute)
-    fun trip(km: Float) = String.format(Locale.US, "AT+TRIP=\"%.1f\"\r\n", km)
     fun maps(base64Jpeg: String) = "AT+MAPS=\"$base64Jpeg\"\r\n"
 
-    /** Sent once on connect by GRID Mobile (meaning unknown - kept for compatibility). */
-    const val ARROW_ON = "AT+ARROW=\"1\"\r\n"
-    /** Guesses for a battery cycle-count query; asked once per connection, shown if the MID answers. */
-    val CYCLE_KEYS = listOf("CYCLE", "CYC", "CYCLES", "NCYC", "BCYC", "CHGCYC")
 
     /** MID firmware version (GRID Mobile shows it as "MID ver ..."). */
     const val VERSION_QUERY = "AT+VER?\r\n"
@@ -62,17 +57,6 @@ object Mid {
         return parts
     }
 
-    /**
-     * Read-only queries for the "probe" button: names seen in either app plus plausible guesses.
-     * Only "AT+NAME?" is sent - never a write. Unknown names just get an error reply.
-     */
-    val PROBE_KEYS = listOf(
-        "SOC2", "NUMBAT", "FWD", "CBAT", "TRIP", "TIME", "NAV", "MAPS", "MAPON", "RPM", "PWR", "CRZ", "REM",
-        "VER", "VERSION", "FW", "HW", "SW", "SN", "ID", "NAME", "MODEL", "VIN", "DATE", "BT", "BLE", "MAC",
-        "LIGHT", "BRIGHT", "THEME", "LANG", "UNIT", "MENU", "PAGE", "SCREEN", "LAYOUT", "LOGO", "MODE2",
-        "RANGE", "AVG", "ECO", "KM", "TEMP", "VOLT", "CURR", "CAP", "CYCLE", "CHG", "HELP", "LIST", "ALL",
-    )
-
     val ERROR_BITS = mapOf(
         0 to "Inverter over temperature", 1 to "Motor over temperature", 2 to "Motor fault",
         3 to "Hall sensor fault", 4 to "Throttle fault", 5 to "Controller fault",
@@ -90,19 +74,20 @@ object Replies {
     private val DEC = Regex("""-?\d{1,7}(\.\d{1,2})?""")
     private class Rule(val re: Regex, val min: Float, val max: Float, val confirmJump: Float)
 
-    // confirmJump: a change bigger than this is only accepted when the next reply says the same.
+    // confirmJump: a change bigger than this from the last accepted value needs a second reply close to the
+    // first (or three replies in a row) before it counts. Sized to what really changes between two answers.
     private val rules = mapOf(
         "SPD" to Rule(INT, 0f, 200f, Float.MAX_VALUE),
-        "SOC" to Rule(INT, 0f, 100f, 1f),
+        "SOC" to Rule(INT, 0f, 100f, 2f),
         "SOH" to Rule(INT, 0f, 100f, 0f),
-        "ODO" to Rule(DEC, 0f, 9_999_999f, 0.5f),
-        "TINV" to Rule(INT, -40f, 150f, 3f), "TMOT" to Rule(INT, -40f, 150f, 3f), "TBAT" to Rule(INT, -40f, 100f, 3f),
-        "VBAT" to Rule(DEC, 20f, 150f, 5f),
+        "ODO" to Rule(DEC, 0f, 9_999_999f, 1f),
+        "TINV" to Rule(INT, -40f, 150f, 10f), "TMOT" to Rule(INT, -40f, 150f, 10f), "TBAT" to Rule(INT, -40f, 100f, 10f),
+        "VBAT" to Rule(DEC, 20f, 150f, 15f),
         "IBAT" to Rule(DEC, -300f, 400f, Float.MAX_VALUE),
         "TRT" to Rule(INT, 0f, 1000f, Float.MAX_VALUE),
         "MODE" to Rule(Regex("[0-9]"), 0f, 9f, 0f),
         "PARK" to Rule(Regex("[01]"), 0f, 1f, 0f),
-        "RANGE" to Rule(DEC, 0f, 999f, 0f),
+        "RANGE" to Rule(DEC, 0f, 999f, 2f),
         "CBAT" to Rule(Regex("""\d{1,6}"""), 0f, 999_999f, Float.MAX_VALUE),
     )
 
@@ -118,12 +103,18 @@ object Replies {
     }
 
     /** Other answers worth keeping as they are (the console log shows every line anyway). */
-    private val OTHER_KEYS = setOf("VER", "NUMBAT", "FWD") + Mid.CYCLE_KEYS
+    private val OTHER_KEYS = setOf("VER", "NUMBAT", "FWD")
 
     /** A number without the MID's zero padding. */
     fun num(f: Float, original: String = ""): String =
         if (f == Math.round(f).toFloat() && !original.contains('.')) Math.round(f).toString()
         else java.math.BigDecimal(original.ifEmpty { f.toString() }).toPlainString()
+
+    /**
+     * Keys the MID always sends with the same number of characters (zero padded: SOC=080, ODO=003791.6).
+     * Once a width is seen, a reply of another width has lost or gained a character and is dropped.
+     */
+    val WIDTH_LOCKED = setOf("SPD", "SOC", "SOH", "ODO", "TINV", "TMOT", "TBAT", "VBAT", "ERR", "RANGE", "MODE", "PARK")
 
     /** How big a change must be before it needs a second, matching reply (0 = any change). */
     fun confirmJump(key: String): Float = if (key == "ERR") 0f else rules[key]?.confirmJump ?: Float.MAX_VALUE
@@ -131,34 +122,70 @@ object Replies {
 
 /** Latest values received from the bike. Thread-safe. */
 class Telemetry {
+    /** Values shown and used right now (cleared when the link drops or the MID stops answering). */
     val raw = ConcurrentHashMap<String, String>()
+    private val times = ConcurrentHashMap<String, Long>()
     @Volatile var lastUpdate = 0L
-    private val pending = ConcurrentHashMap<String, String>()
+    // Kept across reconnects: the last confirmed value and width per key, and an unconfirmed candidate.
+    private val refs = HashMap<String, String>()
+    private val widths = HashMap<String, Int>()
+    private val pending = HashMap<String, String>()
+    private val strikes = HashMap<String, Int>()
     /** -1 if this bike's battery reports current drawn as negative (see CurrentSign); IBAT is stored as "drawn > 0". */
     @Volatile var ibatSign = 1
     /** IBAT exactly as the MID sent it, for learning the sign. */
     @Volatile var ibatRaw: Float? = null
 
-    fun put(key: String, value: String) { raw[key] = value; lastUpdate = System.currentTimeMillis() }
+    fun put(key: String, value: String, now: Long = System.currentTimeMillis()) { raw[key] = value; times[key] = now; lastUpdate = now }
+
+    /** Milliseconds since [key] was last received, or null if it isn't known now. */
+    fun ageMs(key: String, now: Long = System.currentTimeMillis()): Long? = times[key]?.let { now - it }
+    fun fresh(key: String, maxAgeMs: Long, now: Long = System.currentTimeMillis()): Boolean = (ageMs(key, now) ?: Long.MAX_VALUE) <= maxAgeMs
+
+    /** Forget what is shown (link lost / MID silent) so no screen keeps showing old values as if live. */
+    fun clearLive() { raw.clear(); times.clear(); ibatRaw = null }
+
+    private fun close(key: String, a: String, b: String, limit: Float): Boolean {
+        if (key == "ERR" || limit == 0f) return a == b
+        val x = a.toFloatOrNull() ?: return a == b
+        val y = b.toFloatOrNull() ?: return false
+        return kotlin.math.abs(x - y) <= limit
+    }
 
     /**
-     * A reply from the MID: kept only if it is well-formed and plausible, and a big jump (battery %,
-     * error code, odometer...) only once a second reply agrees. Returns true if it was taken.
+     * A reply from the MID. Kept only if it is well-formed, plausible and has the usual width. A value far
+     * from the last confirmed one (or the very first one for a key) needs a second reply close to it, or
+     * three such replies in a row - one garbled answer never counts. An error code that comes and goes is
+     * still caught (its candidate survives the clean answers in between). Returns true if it was taken.
      */
-    fun offer(key: String, value: String): Boolean {
+    @Synchronized
+    fun offer(key: String, value: String, now: Long = System.currentTimeMillis()): Boolean {
+        val trimmed = value.trim('"', ' ')
         val v = Replies.clean(key, value) ?: return false
-        val cur = raw[key]
+        if (key in Replies.WIDTH_LOCKED) widths[key]?.let { if (trimmed.length != it) return false }
         val limit = Replies.confirmJump(key)
-        if (cur != null && cur != v && limit != Float.MAX_VALUE) {
-            val a = cur.toFloatOrNull(); val b = v.toFloatOrNull()
-            val big = if (a != null && b != null && key != "ERR") kotlin.math.abs(a - b) > limit else true
-            if (big && pending[key] != v) { pending[key] = v; return false }
+        if (limit != Float.MAX_VALUE) {
+            val ref = refs[key]
+            val p = pending[key]
+            val byRef = ref != null && close(key, ref, v, limit)
+            when {
+                byRef -> { if (key != "ERR") { pending.remove(key); strikes.remove(key) } }
+                p != null && close(key, p, v, limit) -> { pending.remove(key); strikes.remove(key) }
+                else -> {
+                    pending[key] = v
+                    val n = (strikes[key] ?: 0) + 1
+                    strikes[key] = n
+                    if (n < 3) return false
+                    pending.remove(key); strikes.remove(key)
+                }
+            }
         }
-        pending.remove(key)
+        refs[key] = v
+        if (key in Replies.WIDTH_LOCKED && widths[key] == null) widths[key] = trimmed.length
         if (key == "IBAT") {
             val a = v.toFloat(); ibatRaw = a
-            put(key, if (ibatSign < 0) Replies.num(-a, if (v.startsWith("-")) v.substring(1) else "-$v") else v)
-        } else put(key, v)
+            put(key, if (ibatSign < 0) Replies.num(-a, if (v.startsWith("-")) v.substring(1) else "-$v") else v, now)
+        } else put(key, v, now)
         return true
     }
     fun f(key: String): Float? = raw[key]?.trim('"', ' ')?.toFloatOrNull()
@@ -176,6 +203,9 @@ class Telemetry {
 /** Joins raw bytes into "KEY=value" lines. Not thread-safe: use from one thread. */
 class LineParser {
     private val buf = StringBuilder()
+
+    /** Drop a half line left over from a previous connection. */
+    fun reset() = buf.setLength(0)
 
     /** [out] gets KEY=value lines; [raw] gets every non-empty line as received (for the console). */
     fun feed(data: ByteArray, raw: (String) -> Unit = {}, out: (String, String) -> Unit) {

@@ -56,7 +56,7 @@ class RangeEstimator(
         val restart = anchorOdo.isNaN() || anchorSoc.isNaN() ||
             gap > maxGapMs ||                    // app was off: unknown what happened in between
             odoKm < anchorOdo - 0.05f ||         // odometer went backwards
-            socPercent > anchorSoc + 0.5f        // charging
+            socPercent > anchorSoc + 2.5f        // charging (a 1-2 % bounce at a step is not)
         if (restart) { anchor(odoKm, socPercent); return false }
 
         val drop = anchorSoc - socPercent

@@ -228,8 +228,9 @@ def cmd_selftest(args) -> None:
             v = c.request(key)
             ms = (time.monotonic() - t1) * 1000
             out(f"{key:<7}{(v if v is not None else '(no reply)'):>12}  {ms:5.0f} ms   {protocol.KEY_DESCRIPTIONS.get(key, '')}")
-        out("\n== Probe (read-only AT+NAME? queries; anything that answers is interesting) ==")
-        for key in PROBE_KEYS:
+        if args.probe:
+            out("\n== Probe (read-only AT+NAME? queries; anything that answers is interesting) ==")
+        for key in (PROBE_KEYS if args.probe else []):
             c.send(protocol.query(key))
             end = time.monotonic() + args.reply_timeout
             got = []
@@ -328,6 +329,8 @@ def main(argv=None) -> None:
 
     sp = add("selftest", cmd_selftest, "read-only check of the bike connection; writes a report")
     sp.add_argument("--report", default="gesits_report.txt")
+    sp.add_argument("--probe", action="store_true",
+                    help="also ask ~40 unknown names (read-only, but extra traffic for a fragile MID)")
 
     add("map-off", cmd_map_off, "legacy: AT+MAPON=\"0\" + AT+MAPEND")
 

@@ -82,5 +82,15 @@ class BatteryNavTest {
         val t = Telemetry(); t.ibatSign = -1
         assertTrue(t.offer("IBAT", "-25")); assertEquals(25f, t.f("IBAT")); assertEquals(-25f, t.ibatRaw)
     }
-}
 
+    @Test fun aLongRegenDescentDoesNotFlipTheSign() {
+        val c = CurrentSign()
+        repeat(40) { c.update(30f, 20f) }                        // first window: normal battery
+        assertTrue(c.decided); assertEquals(1, c.sign)
+        repeat(80) { assertFalse(c.update(40f, -15f)) }          // two windows of regen downhill
+        assertEquals(1, c.sign)
+        repeat(40) { c.update(30f, 20f) }                        // riding again: back to normal, counter reset
+        repeat(80) { c.update(40f, -15f) }
+        assertEquals(1, c.sign)
+    }
+}

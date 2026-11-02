@@ -18,7 +18,6 @@ class DiagnosisActivity : Activity() {
     private lateinit var values: TextView
     private lateinit var speed: ChartView
     private lateinit var power: ChartView
-    private lateinit var throttle: ChartView
     private lateinit var temps: ChartView
     private val ui = Handler(Looper.getMainLooper())
     private val tick = object : Runnable { override fun run() { refresh(); ui.postDelayed(this, 1000) } }
@@ -52,21 +51,19 @@ class DiagnosisActivity : Activity() {
         speed = ChartView(this, 120).also { col.addView(it) }
         Ui.header(a, col, "Power (kW, below 0 = regen)")
         power = ChartView(this, 120).also { col.addView(it) }
-        Ui.header(a, col, "Throttle")
-        throttle = ChartView(this, 110).also { col.addView(it) }
         Ui.header(a, col, "Temperatures (°C)")
         temps = ChartView(this, 140).also { col.addView(it) }
 
         Ui.header(a, col, "Alarms (phone notifications)")
         col.addView(CheckBox(this).apply {
-            text = "Notify me about low battery, hot battery (> 45°C) or motor (> 85°C), battery health below 75%, and MID errors"
+            text = L.t("Notify me about low battery, hot battery (> 45°C) or motor (> 85°C), battery health below 75%, and MID errors")
             isChecked = settings.alarmsOn; setTextColor(Color.WHITE)
             setOnCheckedChangeListener { _, b -> settings.alarmsOn = b }
         })
         val eSoc = Ui.number(a, col, "Low battery alarm below (%)", settings.socLow)
         Ui.button(a, col, "Save") {
             eSoc.text.toString().toFloatOrNull()?.takeIf { it in 1f..90f }?.let { settings.socLow = it }
-            Toast.makeText(this, "Saved", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, L.t("Saved"), Toast.LENGTH_SHORT).show()
         }
         Ui.text(a, col, "Alarms work while the app is connected (also with the screen off).", 12f, Ui.MUTED)
     }
@@ -78,23 +75,22 @@ class DiagnosisActivity : Activity() {
         val t = Bike.telemetry
         val mask = t.errorMask
         errors.text = when {
-            !Bike.connected && mask == null -> "Not connected"
-            mask == null -> "Waiting for data..."
-            mask == 0 -> "OK - no errors"
+            !Bike.connected && mask == null -> L.t("Not connected")
+            mask == null -> L.t("Waiting for data...")
+            mask == 0 -> L.t("OK - no errors")
             else -> (0 until 16).filter { ((mask shr it) and 1) == 1 }.joinToString("\n\n") { b ->
-                "⚠ ${Mid.ERROR_BITS[b] ?: "Unknown error bit $b"}\n${fixes[b] ?: "Unknown code - note it and ask a workshop."}"
+                "⚠ ${Mid.ERROR_BITS[b]?.let { L.t(it) } ?: "Unknown error bit $b"}\n${L.t(fixes[b] ?: "Unknown code - note it and ask a workshop.")}"
             } + String.format(Locale.US, "\n\n(raw ERR=%04X)", mask)
         }
         errors.setTextColor(if (mask != null && mask != 0) Color.rgb(235, 60, 60) else Color.WHITE)
         fun v(k: String, u: String) = t.raw[k]?.let { "$it$u" } ?: "--"
-        values.text = "Speed ${v("SPD", " km/h")}   Throttle ${v("TRT", "")}\n" +
-            "Battery ${v("SOC", "%")}  health ${v("SOH", "%")}  ${v("VBAT", " V")}  ${v("IBAT", " A")}\n" +
-            "Temps  battery ${v("TBAT", "")}  motor ${v("TMOT", "")}  inverter ${v("TINV", "")} °C"
+        values.text = L.t("Speed") + " ${v("SPD", " km/h")}\n" +
+            L.t("Battery") + " ${v("SOC", "%")}  " + L.t("health") + " ${v("SOH", "%")}  ${v("VBAT", " V")}  ${v("IBAT", " A")}\n" +
+            L.t("Temps") + "  " + L.t("battery") + " ${v("TBAT", "")}  " + L.t("motor") + " ${v("TMOT", "")}  " + L.t("inverter") + " ${v("TINV", "")} °C"
 
         val s = synchronized(Bike.samples) { Bike.samples.toList() }
         speed.series = listOf(ChartView.Series("km/h", Color.rgb(255, 150, 60), s.map { it.spd }))
         power.series = listOf(ChartView.Series("kW", Ui.GREEN, s.map { it.powerW?.div(1000f) }))
-        throttle.series = listOf(ChartView.Series("throttle", Color.rgb(255, 210, 60), s.map { it.trt }))
         temps.series = listOf(
             ChartView.Series("battery", Color.rgb(170, 90, 255), s.map { it.tbat }),
             ChartView.Series("motor", Color.rgb(255, 150, 60), s.map { it.tmot }),

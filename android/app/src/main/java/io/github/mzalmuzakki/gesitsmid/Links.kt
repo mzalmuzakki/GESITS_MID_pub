@@ -37,7 +37,10 @@ class ClassicLink(
 ) : MidLink {
     override val name = "Classic"
     @Volatile private var socket: BluetoothSocket? = null
+    @Volatile private var connecting: BluetoothSocket? = null   // closed by close() to abort a connect() in progress
     @Volatile private var closedReported = false
+    @Volatile private var closing = false
+    @Volatile private var writeStartedAt = 0L                    // a write stuck longer than 5 s closes the link
 
     // isConnected stays true after the other side vanishes; the receive thread ending is the real signal.
     override val isOpen get() = socket?.isConnected == true && !closedReported
@@ -65,7 +68,10 @@ class ClassicLink(
                     else -> device.javaClass.getMethod("createRfcommSocket", Int::class.javaPrimitiveType).invoke(device, 1) as BluetoothSocket
                 }
                 sock = created
+                connecting = created
+                if (closing) throw IOException("closed")
                 created.connect()
+                connecting = null
                 s = created; usedMethod = m; break
             } catch (e: Exception) {
                 if (firstError == null) firstError = e
@@ -78,6 +84,15 @@ class ClassicLink(
         }
         val conn: BluetoothSocket = s
         socket = conn
+        Thread({
+            // Watchdog for writes: if the MID stops taking data, a write could block for ever and the service
+            // would never notice the MID has hung. Closing the socket makes the write fail instead.
+            while (socket === conn && !closedReported) {
+                try { Thread.sleep(1000) } catch (_: InterruptedException) { break }
+                val w = writeStartedAt
+                if (w > 0L && System.currentTimeMillis() - w > 5000) { try { conn.close() } catch (_: IOException) {}; reportClosed(); break }
+            }
+        }, "mid-classic-watchdog").apply { isDaemon = true }.start()
         Thread({
             val buf = ByteArray(1024)
             try {
@@ -96,8 +111,11 @@ class ClassicLink(
     override fun write(data: ByteArray) {
         val s = socket ?: throw IOException("not connected")
         synchronized(this) {
-            s.outputStream.write(data)
-            s.outputStream.flush()
+            writeStartedAt = System.currentTimeMillis()
+            try {
+                s.outputStream.write(data)
+                s.outputStream.flush()
+            } finally { writeStartedAt = 0L }
         }
     }
 
@@ -108,7 +126,9 @@ class ClassicLink(
     }
 
     override fun close() {
+        closing = true
         closedReported = true
+        try { connecting?.close() } catch (_: IOException) {}
         try { socket?.close() } catch (_: IOException) {}
         socket = null
     }
@@ -191,7 +211,8 @@ class BleLink(
 
     override fun open() {
         gatt = device.connectGatt(context, false, cb, BluetoothDevice.TRANSPORT_LE)
-        if (!readyLatch.await(20, TimeUnit.SECONDS) || !ready) {
+        val ok = try { readyLatch.await(20, TimeUnit.SECONDS) } catch (e: InterruptedException) { close(); throw e }
+        if (!ok || !ready) {
             val why = if (ch == null && gatt != null) "characteristic FFF2 not found" else "timeout / disconnected"
             close()
             throw IOException("BLE connect failed: $why")

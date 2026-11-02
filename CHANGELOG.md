@@ -5,6 +5,53 @@ Versions are **v\<major\>.\<xx\>.\<yy\>** (see `android/version.properties`):
 * **xx**: feature milestone (new or changed things you notice); resets yy
 * **yy**: fixes and polish only
 
+## v0.17.00 - safety, reviewed
+Two independent QA reviews and an audit of v0.16.00 found that several of its safety promises could be
+bypassed (corrected below). Everything they confirmed is fixed:
+* **One hard traffic limit:** at most 2 commands a second in total (questions and writes together),
+  whatever screen is open. The Speedometer and Diagnosis screens no longer speed up polling
+  (v0.16 still went to ~5 a second with them open).
+* **Only known commands can leave the phone**, checked where everything is sent: questions, the clock,
+  the 20-character text line, pictures up to 4000 characters. The `AT+TRIP` range override is removed
+  (v0.16's migration had left it on for anyone who had enabled it). The console only asks questions.
+* **Pictures** (still off by default): at most one every 10 s with no exceptions (text changes used to
+  force an immediate picture), at most 4000 characters, and the MID is left alone for 1-2 s afterwards.
+  Calibration grids switch off by themselves after 2 minutes.
+* **When the MID stops answering:** writes stop after 3 s without an answer. After 8 s of silence while
+  riding the app sends nothing more, warns you, and waits until the bike is switched off and on (or you
+  tap Connect), checking with one question a minute. Parked, it assumes the ignition was switched off
+  and retries slowly. A dropped link or a connection error retries with a growing pause (2 s ... 60 s)
+  that only resets once the MID answers. A Bluetooth write stuck for 5 s closes the link.
+* **No frozen numbers:** live values that stop coming in are cleared; the phone Speedometer shows
+  NO DATA when the speed is more than 3 s old.
+* **Answers are checked better:** the first value of each key after connecting needs a second agreeing
+  answer; real changes (rising temperatures, voltage sag) are followed; a reply with a lost or extra
+  character (wrong width) is dropped; an error code that comes and goes is still reported.
+* **Learning:** the battery-current sign no longer flips on a long regen descent; a 1-2 % battery
+  bounce no longer halves the learned km per 1%.
+* **Reliability:** Disconnect then Connect (or Change bike) no longer leaves the app doing nothing;
+  an interrupted Bluetooth LE connect is closed; a crash elsewhere in the app no longer drops the link;
+  pairing requests only after tapping Connect.
+* **Privacy:** "Delete all my data" waits until the service has stopped (it could save a ride again) and
+  also clears data in memory; demo mode is refused while connected to a bike and never reaches it.
+* **Permissions:** notifications are optional; Android 8-11 ask for location only to scan for a
+  Bluetooth LE bike, not for a paired Classic one.
+* **Battery:** the service no longer wakes ~30 times a second with pictures off; no wake lock while the
+  MID is silent.
+* Missing Indonesian texts added (status line, Diagnosis, Trips, alarms, error names).
+* **Build pipeline:** only `main` publishes; failed installs or screens, crashes and freezes (ANR) in the
+  emulator block publishing; builds queue instead of cancelling a publish half-way; the build job can't
+  write releases; third-party steps are pinned; the signing key file is removed after building; release
+  notes say plainly that the bike connection is not tested by the build.
+* Unit tests for the traffic rules, the command allowlist, silence handling and answer checking.
+
+**Corrections to v0.16.00's notes:** it asked about 2.8 questions a second while riding (≈25 % fewer
+than v0.15, not half) and ~5 with the Speedometer open; "at most one picture every 10 s" and "goes quiet
+at once" were not true in all cases; the range override could still send.
+
+**Still true:** this has been tested here with unit tests and in the emulator, not on the bike for long
+periods. Test parked first; if the MID ever freezes, stop safely and switch the bike off and on.
+
 ## v0.16.00 - safety
 On a real G1 (MID 11-50-09-G1) the MID froze after about 5 minutes of riding with v0.15: speed and turn
 signals stuck until the ignition was switched off and on, and the app kept reconnecting to the hung MID.

@@ -50,7 +50,7 @@ class TripsPage(private val a: Activity, private val settings: Settings) {
         Ui.tile(a, r, "EFFICIENCY").text = st.avgWhPerKm?.let { String.format(Locale.US, "%.0f Wh/km", it) } ?: "--"
         r = Ui.row(a, tc)
         Ui.tile(a, r, "REGEN").text = String.format(Locale.US, "%.0f Wh", st.totalRegenWh)
-        Ui.tile(a, r, "KM PER 1%").text = synchronized(Bike.range) { String.format(Locale.US, "%.2f", Bike.energy.rangeKm(1f)) }
+        Ui.tile(a, r, "KM PER 1%").text = synchronized(Bike.range) { String.format(Locale.US, "%.2f", Bike.range.kmPerPercent) }   // same as the range shown
 
         // Battery health: SOH from the MID, capacity from rides, cycles counted by the app
         val bh = Ui.card(a, col, "BATTERY HEALTH")
@@ -62,13 +62,11 @@ class TripsPage(private val a: Activity, private val settings: Settings) {
         val (cyc, charges, since) = synchronized(Bike.battery) { Triple(Bike.battery.equivalentCycles, Bike.battery.chargeSessions, Bike.battery.sinceMs) }
         Ui.tile(a, r, "CYCLES (COUNTED)").text = String.format(Locale.US, "%.1f", cyc)
         Ui.tile(a, r, "CHARGES").text = "$charges"
-        val midCycles = Mid.CYCLE_KEYS.firstNotNullOfOrNull { k -> Bike.telemetry.raw[k]?.let { "$k=$it" } }
         Ui.text(a, bh, (if (since > 0) (if (L.indo) "Dihitung aplikasi ini sejak " else "Counted by this app since ") +
                 SimpleDateFormat("d MMM yyyy", indo).format(Date(since)) + ". "
             else if (L.indo) "Mulai dihitung saat motor terhubung. " else "Counting starts when the bike is connected. ") +
             (if (L.indo) "1 siklus = 100% baterai terpakai. " else "1 cycle = 100% of battery used. ") +
-            (midCycles?.let { (if (L.indo) "Hitungan dari MID: " else "MID reports: ") + it }
-                ?: (if (L.indo) "Hitungan seumur baterai ada di BMS; MID belum melaporkannya." else "The lifetime count lives in the battery's BMS; the MID hasn't reported it.")),
+            (if (L.indo) "Hitungan seumur baterai ada di BMS; MID tidak melaporkannya." else "The lifetime count lives in the battery's BMS; the MID doesn't report it."),
             12f, Ui.MUTED)
         if (log.size >= 2) bh.addView(ChartView(a, 100).apply {
             unit = "%"
@@ -82,7 +80,7 @@ class TripsPage(private val a: Activity, private val settings: Settings) {
         r = Ui.row(a, sc)
         Ui.tile(a, r, "PETROL NOT BURNED").text = String.format(Locale.US, "%.1f L", sv.litres)
         Ui.tile(a, r, "CO₂ AVOIDED").text = String.format(Locale.US, "%.1f kg", sv.co2Kg)
-        Ui.text(a, sc, "Petrol ${rp(sv.petrolRp)} minus electricity ${rp(sv.electricityRp)}", 12f, Ui.MUTED)
+        Ui.text(a, sc, L.t("Petrol") + " ${rp(sv.petrolRp)} " + L.t("minus electricity") + " ${rp(sv.electricityRp)}", 12f, Ui.MUTED)
 
         val dc = Ui.card(a, col, "LAST 7 DAYS")
         dc.addView(ChartView(a, 110).apply {
@@ -94,14 +92,13 @@ class TripsPage(private val a: Activity, private val settings: Settings) {
 
         val rc = Ui.card(a, col, "RECORDS")
         val df = SimpleDateFormat("d MMM yyyy", indo)
-        Ui.text(a, rc, "Longest ride   " + (st.longest?.let { "${f1(it.km)} km · ${df.format(Date(it.startMs))}" } ?: "--"))
-        Ui.text(a, rc, "Most efficient " + (st.mostEfficient?.let { String.format(Locale.US, "%.0f Wh/km · %s", it.whPerKm, df.format(Date(it.startMs))) } ?: "--"))
-        Ui.text(a, rc, "Top speed      " + (st.topSpeed?.let { "${it.toInt()} km/h" } ?: "--"))
+        Ui.text(a, rc, L.t("Longest ride") + "   " + (st.longest?.let { "${f1(it.km)} km · ${df.format(Date(it.startMs))}" } ?: "--"))
+        Ui.text(a, rc, L.t("Most efficient") + " " + (st.mostEfficient?.let { String.format(Locale.US, "%.0f Wh/km · %s", it.whPerKm, df.format(Date(it.startMs))) } ?: "--"))
+        Ui.text(a, rc, L.t("Top speed") + "      " + (st.topSpeed?.let { "${it.toInt()} km/h" } ?: "--"))
 
         val hc = Ui.card(a, col, "RIDE HISTORY")
         val tf = SimpleDateFormat("d MMM HH:mm", indo)
-        if (rides.isEmpty()) Ui.text(a, hc, "No rides yet. Rides are saved automatically while the app is connected: " +
-            "a ride starts when you move and ends after 5 minutes stopped.", 13f, Ui.MUTED)
+        if (rides.isEmpty()) Ui.text(a, hc, L.t("No rides yet. Rides are saved automatically while the app is connected: a ride starts when you move and ends after 5 minutes stopped."), 13f, Ui.MUTED)
         rides.takeLast(30).reversed().forEach { ride ->
             Ui.text(a, hc, String.format(Locale.US, "%-12s %5.1f km  %3s Wh/km  %d→%d%%", tf.format(Date(ride.startMs)), ride.km,
                 ride.whPerKm?.let { String.format(Locale.US, "%.0f", it) } ?: "--", ride.socStart.toInt(), ride.socEnd.toInt()), 12f, mono = true)
@@ -112,8 +109,8 @@ class TripsPage(private val a: Activity, private val settings: Settings) {
                 .setType("text/csv").putExtra(Intent.EXTRA_TITLE, "gesits-rides.csv"), EXPORT_REQ)
         }
         Ui.secondary(a, r, "Delete all", 1f, Ui.RED) {
-            AlertDialog.Builder(a).setTitle("Delete all rides?").setMessage("This cannot be undone. Export first to keep a copy.")
-                .setPositiveButton("Delete") { _, _ -> RideStore.clear(a); build(col) }.setNegativeButton("Cancel", null).show()
+            AlertDialog.Builder(a).setTitle(L.t("Delete all rides?")).setMessage(L.t("This cannot be undone. Export first to keep a copy."))
+                .setPositiveButton(L.t("Delete")) { _, _ -> RideStore.clear(a); build(col) }.setNegativeButton(L.t("Cancel"), null).show()
         }
 
         val set = Ui.collapsible(a, col, "Target & prices")
@@ -126,7 +123,7 @@ class TripsPage(private val a: Activity, private val settings: Settings) {
             eKmL.text.toString().toFloatOrNull()?.takeIf { it > 0 }?.let { settings.kmPerLitre = it }
             eRpL.text.toString().toFloatOrNull()?.takeIf { it >= 0 }?.let { settings.rpPerLitre = it }
             eRpKwh.text.toString().toFloatOrNull()?.takeIf { it >= 0 }?.let { settings.rpPerKwh = it }
-            Toast.makeText(a, "Saved", Toast.LENGTH_SHORT).show(); build(col)
+            Toast.makeText(a, L.t("Saved"), Toast.LENGTH_SHORT).show(); build(col)
         }
     }
 
@@ -134,7 +131,7 @@ class TripsPage(private val a: Activity, private val settings: Settings) {
     fun export(uri: android.net.Uri) {
         try {
             a.contentResolver.openOutputStream(uri)?.use { it.write(RideStore.csv(a).toByteArray()) }
-            Toast.makeText(a, "Exported ${RideStore.all(a).size} rides", Toast.LENGTH_LONG).show()
-        } catch (e: Exception) { Toast.makeText(a, "Export failed: ${e.message}", Toast.LENGTH_LONG).show() }
+            Toast.makeText(a, (if (L.indo) "Diekspor: " else "Exported ") + "${RideStore.all(a).size} " + (if (L.indo) "perjalanan" else "rides"), Toast.LENGTH_LONG).show()
+        } catch (e: Exception) { Toast.makeText(a, L.t("Export failed") + ": ${e.message}", Toast.LENGTH_LONG).show() }
     }
 }
