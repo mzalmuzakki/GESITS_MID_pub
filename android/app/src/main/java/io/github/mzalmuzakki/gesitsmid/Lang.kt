@@ -51,7 +51,14 @@ object L {
         "e.g. Halo Gesits! Hati-hati di jalan" to "mis. Halo Gesits! Hati-hati di jalan",
         "Save text" to "Simpan teks", "Text cleared" to "Teks dihapus",
         "Pair the bike again: phone Bluetooth settings → Gesits." to "Pasangkan ulang motor: pengaturan Bluetooth HP → Gesits.",
-        "SLOW DOWN" to "PELAN", "measured" to "terukur", "learning" to "belajar",
+        "SLOW DOWN" to "PELAN",
+        "RANGE writes are blocked: they made a G1's MID stop answering" to "Penulisan RANGE diblokir: membuat MID G1 berhenti merespons",
+        "Send your own AT command, e.g. AT+SPD?. Queries ending in ? only read. Odometer and RANGE writes are blocked (RANGE froze a G1's MID)." to
+            "Kirim perintah AT sendiri, mis. AT+SPD?. Pertanyaan berakhiran ? hanya membaca. Penulisan odometer dan RANGE diblokir (RANGE membuat MID G1 macet).",
+        "Pictures are heavy for the MID: on a G1 they made it freeze (speed, turn signals) until the bike was switched off and on. Off is safest." to
+            "Gambar berat untuk MID: di G1 gambar membuatnya macet (kecepatan, lampu sein) sampai motor dimatikan lalu dinyalakan lagi. Mati paling aman.",
+        "The MID stopped answering. When it is safe, stop and switch the bike off and on. The app stays quiet for 2 minutes." to
+            "MID berhenti merespons. Jika aman, berhenti lalu matikan dan nyalakan motor. Aplikasi diam selama 2 menit.", "measured" to "terukur", "learning" to "belajar",
         "Adaptive range in the MID text line" to "Jarak tempuh adaptif di baris teks MID",
         "Learns your battery size and how much you use, by itself. Shown when you have no text of your own." to
             "Mempelajari ukuran baterai dan pemakaian Anda secara otomatis. Tampil saat Anda tidak mengisi teks sendiri.",

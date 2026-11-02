@@ -66,6 +66,13 @@ One screen with four tabs at the bottom:
   Optional **"Remember where I parked"** saves the phone's GPS position when you park or switch off.
 * Keeps running with the screen off, shown by a "Gesits MID" notification. Stop it with **Disconnect**.
 
+## Safety: the MID can freeze
+On a G1 (MID `11-50-09-G1`) the MID froze after ~5 minutes of heavy traffic (pictures, text, many
+questions): speed and turn signals stuck until the ignition was switched off and on. So the app sends
+**no pictures by default**, asks about 2 questions a second, and goes quiet and warns you as soon as the
+MID stops answering. **If the MID ever freezes: stop safely and switch the bike off and on.** Turning
+pictures on (MID tab) is at your own risk.
+
 ## Why it's "safe"
 | | This app | GESITS Dashboard (community) |
 |---|---|---|

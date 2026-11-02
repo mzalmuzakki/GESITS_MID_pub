@@ -5,6 +5,19 @@ Versions are **v\<major\>.\<xx\>.\<yy\>** (see `android/version.properties`):
 * **xx**: feature milestone (new or changed things you notice); resets yy
 * **yy**: fixes and polish only
 
+## v0.16.00 - safety
+On a real G1 (MID 11-50-09-G1) the MID froze after about 5 minutes of riding with v0.15: speed and turn
+signals stuck until the ignition was switched off and on, and the app kept reconnecting to the hung MID.
+The MID is fragile under load (GESITS Dashboard's authors saw the same), so:
+* **MID pictures are off by default** (switched off once for everyone). They are by far the heaviest
+  load (7000 characters each). If switched on: at most one every 10 s. The range stays in the text line.
+* **If the MID stops answering, the app goes quiet at once**, warns you ("stop and switch the bike off
+  and on") and waits 2 minutes, instead of reconnecting every minute.
+* After connecting, nothing but questions is sent until the MID has answered.
+* On connect only the version is asked: no more guessed names (cycle count) or `AT+ARROW`.
+* About half as many questions per second (≈2 while riding).
+* The console's Probe button (52 unknown questions at once) is gone; `AT+RANGE=` is blocked there too.
+
 ## v0.15.01
 * The km-per-1% range starts from what the app already learned about the bike (battery size and
   consumption) instead of the original battery's 0.5, so updating doesn't drop the range back to ~50 km.

@@ -111,7 +111,17 @@ class Settings(ctx: Context) {
     var address: String? get() = p.getString("address", null); set(v) = p.edit().putString("address", v).apply()
     var deviceName: String? get() = p.getString("deviceName", null); set(v) = p.edit().putString("deviceName", v).apply()
     /** "dashboard", "picture", "grid" (calibration) or "off" */
-    var screenMode: String get() = p.getString("screen", "dashboard")!!; set(v) = p.edit().putString("screen", v).apply()
+    var screenMode: String get() = p.getString("screen", "off")!!; set(v) = p.edit().putString("screen", v).apply()
+
+    /**
+     * v0.16: on a real G1 the MID froze (speed, turn signals) after ~5 min of pictures + text + polling.
+     * Pictures (7000 chars each) are by far the heaviest load, so they are switched off once for everyone;
+     * you can switch them on again in the MID tab.
+     */
+    fun migrateSafeDefaults() {
+        if (p.getBoolean("safe016", false)) return
+        p.edit().putString("screen", "off").putInt("frameSec", maxOf(p.getInt("frameSec", 10), 10)).putBoolean("safe016", true).apply()
+    }
     /** Show the app's adaptive range in the MID text line (when you have no text of your own). */
     /** How the Classic link last connected (insecure / secure / ch1): tried first next time. */
     var classicMethod: String? get() = p.getString("classicMethod", null); set(v) = p.edit().putString("classicMethod", v).apply()
@@ -158,7 +168,7 @@ class Settings(ctx: Context) {
     var margins: ScreenRenderer.Margins
         get() = ScreenRenderer.Margins(p.getInt("mL", 0), p.getInt("mT", 0), p.getInt("mR", 0), p.getInt("mB", 0))
         set(v) = p.edit().putInt("mL", v.left).putInt("mT", v.top).putInt("mR", v.right).putInt("mB", v.bottom).apply()
-    var frameSeconds: Int get() = p.getInt("frameSec", 3); set(v) = p.edit().putInt("frameSec", v).apply()
+    var frameSeconds: Int get() = maxOf(p.getInt("frameSec", 10), 10); set(v) = p.edit().putInt("frameSec", v).apply()
 }
 
 @SuppressLint("MissingPermission")
@@ -396,9 +406,9 @@ class MidService : Service() {
     private fun pollPeriod(key: String, parked: Boolean, fast: Boolean): Long {
         val base = when (key) {
             "SPD" -> if (fast) 300L else 1000L
-            "IBAT" -> if (fast) 500L else 1000L
-            "VBAT" -> if (fast) 1000L else 2000L
-            "ODO", "PARK" -> 3000L
+            "IBAT" -> if (fast) 500L else 2000L
+            "VBAT" -> if (fast) 1000L else 5000L
+            "ODO", "PARK" -> 5000L
             "SOC", "MODE" -> 5000L
             "ERR" -> 10_000L
             "TBAT", "TMOT", "TINV" -> 15_000L
@@ -430,6 +440,7 @@ class MidService : Service() {
         Bike.loadTrip(s)
         Bike.loadBattery(s)
         L.init(s.language)
+        s.migrateSafeDefaults()
         Bike.currentSign.load(s.currentSign); Bike.telemetry.ibatSign = Bike.currentSign.sign
         // Battery size from rides recorded earlier, if the energy model has nothing yet.
         RideStore.all(this).filter { it.energyWh > 0f && it.socStart - it.socEnd >= 2f }.let { r ->
@@ -468,9 +479,7 @@ class MidService : Service() {
                     lastFrameKey = ""; lastPolled.clear(); lastSave = System.currentTimeMillis()
                     Bike.telemetry.raw.clear()         // never pair old values with new ones (range learning)
                     Bike.lastRxAt = 0L; connectedAt = System.currentTimeMillis()
-                    send(Mid.VERSION_QUERY)            // MID firmware version (shown in the app)
-                    send(Mid.ARROW_ON)                 // as GRID Mobile does on connect
-                    Mid.CYCLE_KEYS.forEach { send(Mid.query(it)) }   // does this MID report a cycle count?
+                    send(Mid.VERSION_QUERY)            // MID firmware version; nothing else unknown is ever sent
                     BikeWidget.update(this)
                 }
                 val now = System.currentTimeMillis()
@@ -478,12 +487,22 @@ class MidService : Service() {
                 // Android still calls it open (e.g. the phone suspended Bluetooth in the background).
                 rangeOn = s.rangeOverride
                 val heard = Bike.lastRxAt
-                if (now - connectedAt > 20_000 && (if (heard > 0L) now - heard > 15_000 else now - connectedAt > 60_000)) {
-                    setStatus(if (heard > 0L) "No answer from the MID for 15 s - reconnecting" else "MID never answered - reconnecting")
+                if (now - connectedAt > 20_000 && (if (heard > 0L) now - heard > 15_000 else now - connectedAt > 30_000)) {
+                    // The MID stopped answering: it may have hung (seen on a G1: speed and turn signals froze until
+                    // the ignition was switched off and on). Stop sending anything at once, warn, and wait.
                     Bike.connected = false
                     link?.close(); link = null
+                    if (!midHungWarned) {
+                        Alerts.notify(this, L.t("The MID stopped answering. When it is safe, stop and switch the bike off and on. The app stays quiet for 2 minutes."))
+                        midHungWarned = true
+                    }
+                    setStatus("The MID stopped answering - pausing 2 min (switch the bike off and on)")
+                    Thread.sleep(120_000)
                     continue
                 }
+                if (heard > 0L) midHungWarned = false
+                // Until the MID has answered on this connection, only questions are sent (no picture, text, clock).
+                val talk = heard > 0L
                 val tm = Bike.telemetry
                 val parked = tm.gear == "P" && (tm.f("SPD") ?: 0f) < 1f
                 val fast = Bike.uiFast
@@ -507,7 +526,7 @@ class MidService : Service() {
                 if (due != null) { send(Mid.query(due)); lastPolled[due] = now; nextPoll = now + 200 }
 
                 // Clock: on connect, whenever the phone's minute changes, and every 30 s as a safety net.
-                if (s.syncTime) {
+                if (s.syncTime && talk) {
                     val c = Calendar.getInstance()
                     val minute = c.get(Calendar.HOUR_OF_DAY) * 60 + c.get(Calendar.MINUTE)
                     if (minute != lastMinute || now - lastTime >= 30_000) {
@@ -571,7 +590,7 @@ class MidService : Service() {
                 // Range: the MID keeps putting its own figure back (on its own timer and whenever it redraws
                 // after a picture), so ours is re-sent every 0.25 s and again once the picture has been drawn.
                 val rangeReady = rangeOn
-                if (rangeReady && (now - lastTripSent >= TRIP_EVERY_MS || (tripAfterFrame > 0L && now >= tripAfterFrame))) {
+                if (talk && rangeReady && (now - lastTripSent >= TRIP_EVERY_MS || (tripAfterFrame > 0L && now >= tripAfterFrame))) {
                     Bike.rangeKm()?.let { send(Mid.trip(it)) }
                     tripAfterFrame = 0L
                 }
@@ -590,7 +609,9 @@ class MidService : Service() {
                     s.navDate -> Mid.dateText()
                     else -> null
                 }
-                if (line == null && own.size > 1) {
+                if (!talk) {
+                    // wait for the MID's first answer
+                } else if (line == null && own.size > 1) {
                     if (now - lastNav >= 5000) { navIdx %= own.size; send(Mid.nav(own[navIdx++])); lastNav = now; lastNavText = "" }
                 } else if (line != null && line != lastNavText) {
                     if (s.screenMode != "off") {
@@ -608,7 +629,7 @@ class MidService : Service() {
                     lastFrameKey = ""                      // MID did not confirm the last picture: send it again
                     Bike.log("MID did not confirm the picture - resending")
                 }
-                if (s.screenMode != "off" && now - lastFrame >= s.frameSeconds * 1000L) {
+                if (talk && s.screenMode != "off" && now - lastFrame >= s.frameSeconds * 1000L) {
                     val t0 = System.currentTimeMillis()
                     val b64 = picturePayload(s, now)
                     if (b64 != null) {
@@ -620,7 +641,7 @@ class MidService : Service() {
                     }
                     lastFrame = System.currentTimeMillis()
                 }
-                pendingNav?.let { if (now - pendingNavAt > 5000) { send(Mid.nav("")); send(Mid.nav(it)); lastNavText = it; lastNav = now; pendingNav = null } }
+                pendingNav?.let { if (talk && now - pendingNavAt > 5000) { send(Mid.nav("")); send(Mid.nav(it)); lastNavText = it; lastNav = now; pendingNav = null } }
 
                 // Sleep until the next thing is due; a command from the UI wakes us early.
                 val nextDue = minOf(nextPoll, lastLearn + 1000, if (rangeReady) minOf(lastTripSent + TRIP_EVERY_MS, if (tripAfterFrame > 0L) tripAfterFrame else Long.MAX_VALUE) else Long.MAX_VALUE,
@@ -649,6 +670,7 @@ class MidService : Service() {
 
     private var lastGear: String? = null
     @Volatile private var connectedAt = 0L
+    @Volatile private var midHungWarned = false
     @Volatile private var pairingAllowed = false   // see ClassicLink.allowPairing
     @Volatile private var rangeOn = false       // send our range to the MID (setting on, no range test running)
     private var lastTripSent = 0L

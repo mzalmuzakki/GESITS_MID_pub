@@ -53,6 +53,7 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         settings = Settings(this)
+        settings.migrateSafeDefaults()
         val demo = intent?.getBooleanExtra("demo", false) == true &&
             android.provider.Settings.Global.getInt(contentResolver, android.provider.Settings.Global.ADB_ENABLED, 0) == 1
         L.init(if (demo) intent.getStringExtra("lang") ?: settings.language else settings.language)
@@ -358,7 +359,8 @@ class MainActivity : Activity() {
         val sc = Ui.card(this, col, "SHOW ON THE MID")
         lateinit var pagesBox: LinearLayout
         lateinit var pictureBox: LinearLayout
-        val mainMode = if (settings.screenMode in listOf("dashboard", "picture", "off")) settings.screenMode else "dashboard"
+        Ui.text(this, sc, L.t("Pictures are heavy for the MID: on a G1 they made it freeze (speed, turn signals) until the bike was switched off and on. Off is safest."), 12f, Ui.AMBER)
+        val mainMode = if (settings.screenMode in listOf("dashboard", "picture", "off")) settings.screenMode else "off"
         Ui.segmented(this, sc, listOf("dashboard" to "Live info", "picture" to "My picture", "off" to "Nothing"), mainMode) { m ->
             settings.screenMode = m
             pagesBox.visibility = if (m == "dashboard") View.VISIBLE else View.GONE
@@ -566,7 +568,7 @@ class MainActivity : Activity() {
         }
 
         val adv = Ui.collapsible(this, col, "Advanced: console & log")
-        Ui.text(this, adv, "Send your own AT command, e.g. AT+SPD?. Queries ending in ? only read. Odometer writes are blocked.", 12f, Ui.MUTED)
+        Ui.text(this, adv, "Send your own AT command, e.g. AT+SPD?. Queries ending in ? only read. Odometer and RANGE writes are blocked (RANGE froze a G1's MID).", 12f, Ui.MUTED)
         val cmd = Ui.input(this, adv, "AT+VER?")
         val cr = Ui.row(this, adv)
         Ui.secondary(this, cr, "Send", 1f) {
@@ -575,12 +577,9 @@ class MainActivity : Activity() {
                 !Bike.connected -> toast("Connect to the bike first")
                 c.isEmpty() -> {}
                 c.uppercase().startsWith("AT+ODO=") -> toast("Odometer writes are blocked in this app")
+                c.uppercase().startsWith("AT+RANGE=") -> toast(L.t("RANGE writes are blocked: they made a G1's MID stop answering"))
                 else -> Bike.outbox.add(c + "\r\n")
             }
-        }
-        Ui.secondary(this, cr, "Probe", 1f) {
-            if (!Bike.connected) toast("Connect to the bike first")
-            else { Mid.PROBE_KEYS.forEach { Bike.outbox.add(Mid.query(it)) }; toast("Sent ${Mid.PROBE_KEYS.size} read-only queries") }
         }
         logView = Ui.text(this, adv, "", 11f, Ui.MUTED, mono = true)
         Ui.secondary(this, adv, "Copy log") {
