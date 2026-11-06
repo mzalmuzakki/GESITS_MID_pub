@@ -54,6 +54,8 @@ class MainActivity : Activity() {
         super.onCreate(savedInstanceState)
         settings = Settings(this)
         settings.migrateSafeDefaults()
+        Bike.initLog(this)
+        Bike.loadSafety(this)          // Home shows a remembered hang / questions-only state before connecting
         val demo = intent?.getBooleanExtra("demo", false) == true &&
             android.provider.Settings.Global.getInt(contentResolver, android.provider.Settings.Global.ADB_ENABLED, 0) == 1
         L.init(if (demo) intent.getStringExtra("lang") ?: settings.language else settings.language)
@@ -334,6 +336,8 @@ class MainActivity : Activity() {
 
         val t = Bike.telemetry
         val alerts = mutableListOf<String>()
+        if (Bike.writesBlocked && !hung) alerts += L.t("Pictures, clock and text are paused (questions only) since the MID stopped answering. Check the MID, then tap \"The MID works normally again\" above.")
+        if (settings.gentle) alerts += L.t("Test mode is on: lightest traffic, nothing written to the MID (Tools).")
         if (t.errors.isNotEmpty()) alerts += L.t("MID error") + ": " + t.errors.joinToString { L.t(it) }
         t.f("SOC")?.let { if (it <= settings.socLow) alerts += L.t("Battery low") + ": ${it.toInt()}%" }
         if (Bike.running && !getSystemService(android.os.PowerManager::class.java).isIgnoringBatteryOptimizations(packageName))
@@ -422,7 +426,7 @@ class MainActivity : Activity() {
         Ui.switchRow(this, tc, "Show today's date when empty", "e.g. 31 Oktober 2026", settings.navDate) { settings.navDate = it }
 
         val rc = Ui.card(this, col, "RANGE")
-        Ui.switchRow(this, rc, "Adaptive range in the MID text line", "Learns your battery size and how much you use, by itself. Shown when you have no text of your own.", settings.rangeLine) { settings.rangeLine = it }
+        Ui.switchRow(this, rc, "Adaptive range in the MID text line", "Learns your battery size and how much you use, by itself. Shown when you have no text of your own. With MID pictures on, the range is in the picture instead and the text line stays unused (no overlapping).", settings.rangeLine) { settings.rangeLine = it }
         rangeInfo = Ui.text(this, rc, "", 13f, Ui.MUTED)
         val rr = Ui.row(this, rc)
         Ui.secondary(this, rr, "Forget learned", 1f, Ui.RED) {
@@ -612,7 +616,7 @@ class MainActivity : Activity() {
                             deleteFile("picture.b64")
                             synchronized(Bike.range) { Bike.range.reset(); Bike.energy.reset() }; synchronized(Bike.trip) { Bike.trip.clear() }
                             synchronized(Bike.battery) { Bike.battery.clear() }
-                            synchronized(Bike.log) { Bike.log.clear() }
+                            Bike.deleteLog(this)
                             synchronized(Bike.samples) { Bike.samples.clear() }
                             Bike.telemetry.clearLive(); Bike.currentSign.load("1;false"); Bike.telemetry.ibatSign = 1
                             Bike.nav = null; Bike.lastFrame = null; Bike.status = "Not connected"
@@ -636,9 +640,10 @@ class MainActivity : Activity() {
                 else -> Bike.outbox.add(q)
             }
         }
+        Ui.switchRow(this, adv, "Test mode: lightest traffic", "Only speed, odometer, battery % and errors are asked (one question every 3 s or less); nothing is written to the MID (no clock, text or pictures). To test whether the MID still freezes with almost no traffic.", settings.gentle) { settings.gentle = it }
         logView = Ui.text(this, adv, "", 11f, Ui.MUTED, mono = true)
         Ui.secondary(this, adv, "Copy log") {
-            val text = synchronized(Bike.log) { Bike.log.joinToString("\n") }
+            val text = Bike.logText(this)   // with dates, from the log file (survives closing the app)
             getSystemService(android.content.ClipboardManager::class.java)
                 .setPrimaryClip(android.content.ClipData.newPlainText("Gesits MID log", text))
             toast("Log copied")

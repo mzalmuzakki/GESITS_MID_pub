@@ -74,6 +74,13 @@ object L {
             "Setelah MID berhenti merespons, aplikasi hanya bertanya: tanpa teks, jam, atau gambar. Periksa MID: jika kecepatan, lampu sein, dan jam normal, ketuk di bawah.",
         "The MID works normally again" to "MID sudah normal lagi",
         "MID values look frozen" to "Nilai MID tampak macet",
+        "Connected - questions only: open the app and confirm the MID works" to "Terhubung - hanya bertanya: buka aplikasi dan pastikan MID normal",
+        "Pictures, clock and text are paused (questions only) since the MID stopped answering. Check the MID, then tap \"The MID works normally again\" above." to
+            "Gambar, jam, dan teks dijeda (hanya bertanya) sejak MID berhenti merespons. Periksa MID, lalu ketuk \"MID sudah normal lagi\" di atas.",
+        "Test mode is on: lightest traffic, nothing written to the MID (Tools)." to "Mode uji aktif: lalu lintas paling ringan, tidak ada yang dikirim ke MID (Alat).",
+        "Test mode: lightest traffic" to "Mode uji: lalu lintas paling ringan",
+        "Only speed, odometer, battery % and errors are asked (one question every 3 s or less); nothing is written to the MID (no clock, text or pictures). To test whether the MID still freezes with almost no traffic." to
+            "Hanya kecepatan, odometer, baterai % dan error yang ditanyakan (satu pertanyaan tiap 3 detik atau lebih jarang); tidak ada yang dikirim ke MID (tanpa jam, teks, atau gambar). Untuk menguji apakah MID masih macet dengan lalu lintas hampir nol.",
         "MID values look frozen - stop safely, switch the bike off and on" to "Nilai MID tampak macet - berhenti dengan aman, matikan lalu nyalakan motor",
         "The MID's values looked frozen, so the app shows none of them and only asks questions: no text, clock or pictures. Check the MID: if speed, turn signals and clock work normally, tap below." to
             "Nilai MID tampak macet, jadi aplikasi tidak menampilkannya dan hanya bertanya: tanpa teks, jam, atau gambar. Periksa MID: jika kecepatan, lampu sein, dan jam normal, ketuk di bawah.",
@@ -155,8 +162,8 @@ object L {
         "The MID stopped answering. When it is safe, stop and switch the bike off and on. The app stays quiet for 2 minutes." to
             "MID berhenti merespons. Jika aman, berhenti lalu matikan dan nyalakan motor. Aplikasi diam selama 2 menit.", "measured" to "terukur", "learning" to "belajar",
         "Adaptive range in the MID text line" to "Jarak tempuh adaptif di baris teks MID",
-        "Learns your battery size and how much you use, by itself. Shown when you have no text of your own." to
-            "Mempelajari ukuran baterai dan pemakaian Anda secara otomatis. Tampil saat Anda tidak mengisi teks sendiri.",
+        "Learns your battery size and how much you use, by itself. Shown when you have no text of your own. With MID pictures on, the range is in the picture instead and the text line stays unused (no overlapping)." to
+            "Mempelajari ukuran baterai dan pemakaian Anda secara otomatis. Tampil saat Anda tidak mengisi teks sendiri. Jika gambar MID aktif, jarak tempuh ada di gambar dan baris teks tidak dipakai (tidak bertumpuk).",
         "Also try to replace the MID's range figure" to "Coba juga ganti angka jarak tempuh MID",
         "On the G1 the MID puts its own number back instantly, so this only flickers." to "Di G1, MID langsung mengembalikan angkanya sendiri, jadi hanya berkedip.",
         "The MID's own range figure: %.0f km (it assumes the original battery and can't be changed over Bluetooth)." to

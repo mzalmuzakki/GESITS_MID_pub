@@ -5,6 +5,28 @@ Versions are **v\<major\>.\<xx\>.\<yy\>** (see `android/version.properties`):
 * **xx**: feature milestone (new or changed things you notice); resets yy
 * **yy**: fixes and polish only
 
+## v0.21.00 - reconnecting, pictures without overlap, a log that stays
+After riding v0.20.01: the MID froze about 3 times per commute (speed and turn signals stuck), even while the app
+only asked questions; after a link drop the app kept saying "not paired" although tapping Connect worked at once;
+pictures, clock and text were missing for days because of the hidden questions-only state; text overlapped.
+* **Reconnecting after a drop:** right after the MID drops the link, Android sometimes reports the bike as not
+  paired although it is. For 30 minutes after the MID last answered, the paired way that worked is now tried
+  again anyway (no pairing request appears if the pairing exists). Android's answer is written to the log
+  ("Pairing: bond state ..., in paired list ..."), and the "pair again" alarm comes once, not on every retry.
+* **Questions-only state can't be missed any more:** the notification says "Connected - questions only: open
+  the app and confirm the MID works", and Home shows it as an alert (also before connecting).
+* **MID pictures without overlapping text:** with pictures on, the text line is no longer used (the range and
+  directions are in the picture); only the speed warning uses it, and the next picture wipes it. The range is
+  drawn large and green at the top of the Details and Trip pages (it was small grey text).
+* **The log stays:** kept in a file (deleted by "Delete all my data"); Copy log copies it with dates. When the
+  MID goes silent, the link drops or values freeze, the last 40 Bluetooth messages before it are logged, to
+  find what triggers the freezes.
+* **Test mode** (Tools → Advanced): only speed, odometer, battery % and errors, one question every 3 s or less,
+  nothing written to the MID - to test whether the MID still freezes with almost no traffic.
+* Fixes from the review of v0.20.01: directions starting with "At ..." ("At the roundabout ...", "At the fork,
+  keep right ...") have their arrow again (H1); the instruction line wins over a street name in the title (L1);
+  frozen-values detection works in questions-only mode too (freshness follows the poll period, M1).
+
 ## v0.20.01 - fixes from the fifth review
 An independent review of v0.20.00 (one QA, one auditor) found no high-severity problems. Fixed now (the owner's
 choice; the rest are listed in the review and still open):

@@ -20,7 +20,11 @@ One screen with four tabs at the bottom:
   records, history, CSV export.
 * **Tools:** maps and parking, alarms, keep-connected settings, language (English / Bahasa Indonesia),
   home-screen widget, privacy and permissions, and
-  (under *Advanced*) the console and log.
+  (under *Advanced*) the console, the log and a **test mode** (lightest traffic: speed, odometer,
+  battery % and errors only, nothing written to the MID - to check whether the MID still freezes).
+  The log is also kept in a file in the app's storage (about 600 kB at most), so closing the app doesn't
+  lose it; "Copy log" copies it with dates. When the MID goes silent, the link drops or the values freeze,
+  the last 40 Bluetooth messages before it (with millisecond times) are written to the log.
 
 ## What it does
 * Connects to the bike over **Bluetooth Classic** (paired, the usual way) **or Bluetooth LE** (`GESITS`).
@@ -36,7 +40,9 @@ One screen with four tabs at the bottom:
   The Range card also shows energy figures (battery kWh, Wh/km). The range is shown as "RANGE 112 km"
   in the MID's text line, because the MID's own range figure is its own calculation for the original
   battery and can't be replaced over Bluetooth on a G1. The MID draws the text line without erasing, so
-  a new text goes out after a blank one (and is drawn again after each picture, if pictures are on).
+  texts can overlap. **With MID pictures on, the range is drawn large in the picture instead** (Details and
+  Trip pages: green number at the top; Big page: large) and the text line is left unused, except for the
+  speed warning - pictures replace the whole area, so nothing overlaps.
   **Forget learned range** starts over.
 * **Clock sync:** sets the MID clock from your phone on connect and whenever the minute changes.
 * Optionally shows your own text line (rotating every 15 s, 20 characters per step).

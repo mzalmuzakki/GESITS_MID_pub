@@ -81,6 +81,20 @@ class BatteryNavTest {
         assertEquals(NavParser.Turn.ARRIVE, NavParser.turnOf("Your destination is on the left"))
         assertEquals(NavParser.Turn.STRAIGHT, NavParser.turnOf("Continue onto Jl. Kiri Kanan"))
         assertEquals(NavParser.Turn.NONE, NavParser.turnOf("Jl. Pasar Kiri"))
+        // instructions that start with "At ..." keep their turn (v0.20.01 review H1)
+        assertEquals(NavParser.Turn.ROUNDABOUT, NavParser.turnOf("At the roundabout, take the 2nd exit onto Jl. Merdeka"))
+        assertEquals(NavParser.Turn.SLIGHT_RIGHT, NavParser.turnOf("At the fork, keep right to continue on Tol Cipularang"))
+        assertEquals(NavParser.Turn.LEFT, NavParser.turnOf("At the end of the road, turn left onto Jl. Kanan"))
+        assertEquals(NavParser.Turn.LEFT, NavParser.turnOf("Take the exit on the left toward Tol Kanan"))
+        assertEquals(NavParser.Turn.LEFT, NavParser.turnOf("Ambil jalan keluar ke kiri"))
+        assertEquals(NavParser.Turn.ROUNDABOUT, NavParser.turnOf("Di bundaran, ambil jalan keluar ke-2 ke Jl. Kiri"))
+        assertEquals(NavParser.Turn.STRAIGHT, NavParser.turnOf("Head north on Jl. Kiri"))
+        assertEquals(NavParser.Turn.LEFT, NavParser.turnOf("Turn left to stay on Jl. Kanan"))
+        assertEquals(NavParser.Turn.LEFT, NavParser.turnOf("Belok kiri di Jl. Kanan"))
+        assertEquals(NavParser.Turn.STRAIGHT, NavParser.turnOf("Lanjutkan ke Jl. Kiri"))
+        // the instruction line wins over a street name in the title (review L1)
+        assertEquals(NavParser.Turn.RIGHT, NavParser.parse("Jl. Pasar Kiri", "Turn right", null)!!.turn)
+        assertEquals(NavParser.Turn.RIGHT, NavParser.parse("Turn right", "Jl. Pasar Kiri", null)!!.turn)
     }
 
     @Test fun learnsReversedBatteryCurrent() {

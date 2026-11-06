@@ -150,9 +150,55 @@ object Bike {
     @Volatile var tripLoaded = false
     fun loadTrip(s: Settings) = synchronized(trip) { if (!tripLoaded) { trip.load(s.tripState); tripLoaded = true } }
 
+    /** The log is also kept in a file (app storage only, deleted by "Delete all my data"), so closing the app doesn't lose it. */
+    @Volatile private var logFile: java.io.File? = null
+    fun initLog(ctx: Context) {
+        if (logFile != null) return
+        val f = java.io.File(ctx.filesDir, LOG_FILE)
+        synchronized(log) {
+            if (log.isEmpty() && f.exists()) try { f.readLines().takeLast(200).forEach { log.addLast(it.substringAfter(' ')) } } catch (_: Exception) {}
+            logFile = f
+        }
+    }
+    const val LOG_FILE = "log.txt"
+    const val LOG_OLD = "log.old.txt"
     fun log(msg: String) = synchronized(log) {
-        log.addLast(java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US).format(java.util.Date()) + " " + msg)
+        val now = java.util.Date()
+        val line = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US).format(now) + " " + msg
+        log.addLast(line)
         while (log.size > 200) log.removeFirst()
+        logFile?.let { f ->
+            try {
+                if (f.length() > 300_000L) f.renameTo(java.io.File(f.parentFile, LOG_OLD))   // keeps ~2 x 300 kB at most
+                f.appendText(java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(now) + " " + line + "\n")
+            } catch (_: Exception) {}
+        }
+    }
+    /** The log with dates, from the file (for "Copy log"); the in-memory log if there is no file. */
+    fun logText(ctx: Context, lines: Int = 600): String {
+        val f = java.io.File(ctx.filesDir, LOG_FILE)
+        return try { if (f.exists()) f.readLines().takeLast(lines).joinToString("\n") else null } catch (_: Exception) { null }
+            ?: synchronized(log) { log.joinToString("\n") }
+    }
+    fun deleteLog(ctx: Context) = synchronized(log) {
+        log.clear(); java.io.File(ctx.filesDir, LOG_FILE).delete(); java.io.File(ctx.filesDir, LOG_OLD).delete()
+        synchronized(trace) { trace.clear() }
+    }
+
+    /**
+     * The last Bluetooth traffic (questions, writes, raw answers) with millisecond times, kept in memory only and
+     * written to the log when the MID goes silent, the link drops or the values freeze: to find what came before.
+     */
+    private val trace = ArrayDeque<String>()
+    fun trace(s: String) = synchronized(trace) {
+        trace.addLast(java.text.SimpleDateFormat("HH:mm:ss.SSS", java.util.Locale.US).format(java.util.Date()) + " " + s)
+        while (trace.size > 40) trace.removeFirst()
+    }
+    fun dumpTrace(why: String) {
+        val lines = synchronized(trace) { trace.toList().also { trace.clear() } }
+        if (lines.isEmpty()) return
+        log("Bluetooth traffic before \"$why\" (last ${lines.size}):")
+        lines.forEach { log("   $it") }
     }
 }
 
@@ -180,6 +226,8 @@ class Settings(ctx: Context) {
     var classicMethod: String? get() = p.getString("classicMethod", null); set(v) = p.edit().putString("classicMethod", v).apply()
     var currentSign: String? get() = p.getString("ibatSign", null); set(v) = p.edit().putString("ibatSign", v).apply()
     var rangeLine: Boolean get() = p.getBoolean("rangeLine", true); set(v) = p.edit().putBoolean("rangeLine", v).apply()
+    /** Test mode: lightest traffic (speed, odometer, battery %, errors), nothing written to the MID. */
+    var gentle: Boolean get() = p.getBoolean("gentle", false); set(v) = p.edit().putBoolean("gentle", v).apply()
     /** A calibration grid is shown until this time, then pictures switch off again. */
     var gridUntil: Long get() = p.getLong("gridUntil", 0L); set(v) = p.edit().putLong("gridUntil", v).apply()
     var syncTime: Boolean get() = p.getBoolean("time", true); set(v) = p.edit().putBoolean("time", v).apply()
@@ -275,6 +323,7 @@ class MidService : Service() {
             stopSelf()
             return START_NOT_STICKY
         }
+        Bike.initLog(this)
         if (intent == null) Bike.log("Service restarted by Android (the app had been stopped in the background)")
         if (intent?.getBooleanExtra(EXTRA_TAP, false) == true) pairingAllowed = true
         if (!goForeground(fromApp = intent != null)) { stopSelf(); return START_NOT_STICKY }
@@ -316,6 +365,8 @@ class MidService : Service() {
         if (Bike.dataFrozen) return L.t("MID values look frozen - stop safely, switch the bike off and on")
         if (!Bike.connected) return L.t(if (Bike.running) "Not connected - retrying" else "Stopped")
         val t = Bike.telemetry
+        if (Bike.writesBlocked) return L.t("Connected - questions only: open the app and confirm the MID works") +
+            (t.f("SOC")?.let { "  ·  ${it.toInt()}%" } ?: "")
         return L.t("Connected") + (t.f("SOC")?.let { "  ·  ${it.toInt()}%" } ?: "") +
             (Bike.rangeKm()?.let { "  ·  ${it.toInt()} km" } ?: "")
     }
@@ -352,6 +403,7 @@ class MidService : Service() {
         val onData: (ByteArray) -> Unit = { bytes ->
             synchronized(parser) {
                 parser.feed(bytes, raw = { line ->
+                    Bike.trace("<- $line")
                     // Show everything except the routine poll replies in the log/console.
                     val key = line.removePrefix("AT+").substringBefore('=').trim().uppercase()
                     if (key !in Mid.POLL_KEYS) Bike.log("<- $line")
@@ -368,7 +420,8 @@ class MidService : Service() {
         val onClosed: () -> Unit = { Bike.connected = false; Bike.telemetry.clearLive(); setStatus("Connection lost - retrying") }
         val mayPair = pairingAllowed; pairingAllowed = false          // one pairing request per Connect, at most
         val l: MidLink = if (s.linkType == "ble") BleLink(this, device, onData, onClosed)
-            else ClassicLink(device, onData, onClosed, mayPair, s.classicMethod)
+            else ClassicLink(device, onData, onClosed, mayPair, s.classicMethod,
+                pairedRecently = s.classicMethod != "insecure" && lastAnsweredAt > 0L && Mono.now() - lastAnsweredAt < 30 * 60_000L)
         connectingLink = l
         setStatus("Connecting (${l.name}) to ${s.deviceName ?: addr}...")
         return try {
@@ -379,8 +432,10 @@ class MidService : Service() {
             l.close(); throw e
         } catch (e: Exception) {
             l.close()
+            (l as? ClassicLink)?.bondInfo?.takeIf { it.isNotEmpty() }?.let { Bike.log("Pairing: $it") }
             if (e.message == ClassicLink.NOT_PAIRED) {
-                if (!Bike.status.startsWith("Bike not paired")) Alerts.notify(this, L.t("Pair the bike again: phone Bluetooth settings → Gesits."))
+                // one alarm until a connection works again, not one per retry
+                if (!notPairedWarned) { notPairedWarned = true; Alerts.notify(this, L.t("Pair the bike again: phone Bluetooth settings → Gesits.")) }
                 setStatus("Bike not paired with this phone - pair it again in Bluetooth settings, then tap Connect")
             } else setStatus("Connect failed: ${e.message}")
             null
@@ -409,6 +464,7 @@ class MidService : Service() {
             if (!writeAllowed(Mono.now())) return false
         }
         val t0 = Mono.now()
+        Bike.trace("-> " + (if (cmd.startsWith("AT+MAPS")) "AT+MAPS (${cmd.length} chars)" else cmd.trim()))
         l.write(cmd.toByteArray(Charsets.US_ASCII))
         lastSend = Mono.now()
         if (lastSend - t0 > 1000) live.busy(lastSend + 2000)   // a long write (picture over BLE): not the MID's silence
@@ -495,7 +551,10 @@ class MidService : Service() {
      * of 2 commands a second in send(), so there is room for the occasional write. Speed every 2 s, slow values
      * rarely, x3 when parked (except speed).
      */
-    private fun pollPeriod(key: String, parked: Boolean): Long {
+    /** Test mode: the lightest traffic - speed, odometer, battery % and errors only, no writes at all. */
+    private val GENTLE_KEYS = mapOf("SPD" to 3000L, "ODO" to 9000L, "SOC" to 30_000L, "ERR" to 30_000L)
+    private fun pollPeriod(key: String, parked: Boolean, gentle: Boolean = false): Long {
+        if (gentle) GENTLE_KEYS[key]?.let { return it }
         val base = when (key) {
             "SPD" -> return 2000L                 // always (the phone speedometer), parked too
             "IBAT" -> 5000L
@@ -522,7 +581,8 @@ class MidService : Service() {
 
     private val live = Liveness()
     @Volatile private var connectingLink: MidLink? = null
-    private fun writeAllowed(now: Long) = live.canWrite(now) && Bike.midHungSince == 0L && !Bike.writesBlocked && !Bike.dataFrozen
+    @Volatile private var gentleNow = false
+    private fun writeAllowed(now: Long) = live.canWrite(now) && Bike.midHungSince == 0L && !Bike.writesBlocked && !Bike.dataFrozen && !gentleNow
 
     private fun warnHung(why: String) {
         if (!Bike.hangWarned) { Alerts.notify(this, L.t("The MID stopped answering. When it is safe, stop and switch the bike off and on. Until it answers again the app only asks one question every 15 s.")); Bike.hangWarned = true }
@@ -587,6 +647,7 @@ class MidService : Service() {
                             // The link dropped (bike switched off, out of range, or the MID's Bluetooth gave up):
                             // pause - growing each time until the MID answers again - before trying again.
                             hadLink = false
+                            Bike.dumpTrace("Connection lost")
                             if (!answeredHere) silentLinks++
                             if (Bike.midHungSince == 0L) {
                                 when {
@@ -628,8 +689,10 @@ class MidService : Service() {
                     }
                     val now = Mono.now()
                     if (Bike.lastRxAt > live.lastAnswerAt) live.answered(Bike.lastRxAt)
+                    if (live.lastAnswerAt > 0L) lastAnsweredAt = live.lastAnswerAt
                     if (live.lastAnswerAt > 0L && !answeredHere) {
                         // First answer on this link.
+                        notPairedWarned = false
                         answeredHere = true; suspectHang = false; silentLinks = 0
                         backoff = 2000L                          // only a MID that answers resets the pause
                         if (Bike.midHungSince > 0L) {
@@ -669,7 +732,7 @@ class MidService : Service() {
                     if (live.silent(now)) {
                         // It answered on this link, then went silent: stop asking (one question every 3 s).
                         fastSince = 0L; odoChangedAt = now
-                        if (Bike.connected) { Bike.connected = false; Bike.telemetry.clearLive(); BikeWidget.update(this) }
+                        if (Bike.connected) { Bike.connected = false; Bike.telemetry.clearLive(); BikeWidget.update(this); Bike.dumpTrace("No answer") }
                         when (live.verdict(now, lastMovingAt)) {
                             Liveness.Verdict.HUNG -> {
                                 Bike.markHung(this, now); lastProbe = now; Bike.outbox.clear(); holdWakeLock(false)
@@ -689,6 +752,8 @@ class MidService : Service() {
                     val tm = Bike.telemetry
                     // questions-only and frozen modes ask at the parked rate
                     val slow = (tm.gear == "P" && (tm.f("SPD") ?: 0f) < 1f) || Bike.writesBlocked || Bike.dataFrozen
+                    val gentle = s.gentle
+                    if (gentle != gentleNow) { gentleNow = gentle; Bike.log(if (gentle) "Test mode: lightest traffic, no writes" else "Test mode off") }
                     if (s.screenMode.startsWith("grid") && System.currentTimeMillis() > s.gridUntil) { s.screenMode = "off"; Bike.log("Calibration grid finished - pictures off") }
                     val picturesOn = s.screenMode != "off"
 
@@ -698,7 +763,8 @@ class MidService : Service() {
                     var nextPoll = Long.MAX_VALUE
                     var due: String? = null; var dueScore = 1.0
                     for (k in Mid.POLL_KEYS) {
-                        val period = pollPeriod(k, slow)
+                        if (gentle && k !in GENTLE_KEYS) continue
+                        val period = pollPeriod(k, slow, gentle)
                         val last = lastPolled[k] ?: 0L
                         val score = (now - last).toDouble() / period
                         if (score >= dueScore) { due = k; dueScore = score }
@@ -717,12 +783,12 @@ class MidService : Service() {
                     // Once per second: charts, ride recording, parking, alarms, trip and range learning.
                     if (now - lastLearn >= 1000) {
                         val wall = System.currentTimeMillis()      // dates of rides, trips and charts
-                        tm.expire(now) { k -> if (k in Mid.POLL_KEYS) 3 * pollPeriod(k, slow) + 5000L else Long.MAX_VALUE }
+                        tm.expire(now) { k -> if (k in Mid.POLL_KEYS) 3 * pollPeriod(k, slow, gentle) + 5000L else Long.MAX_VALUE }
                         val spdNow = if (tm.fresh("SPD", 5000L, now)) tm.f("SPD") else null
                         // MID answering but frozen? Speed of 15 km/h or more for 90 s with the odometer not moving.
-                        // Only a fresh odometer answer counts (asked every 5 s): garbled, rejected answers are no proof
+                        // Only a fresh odometer answer counts (within two of its poll periods): garbled, rejected answers are no proof
                         // that it stopped moving.
-                        val odoNow = if (tm.fresh("ODO", 15_000L, now)) tm.f("ODO") else null
+                        val odoNow = if (tm.fresh("ODO", 2 * pollPeriod("ODO", slow, gentle) + 3000L, now)) tm.f("ODO") else null
                         if (odoNow == null) { fastSince = 0L; odoChangedAt = now }
                         else if (odoNow != lastOdoSeen) { lastOdoSeen = odoNow; odoChangedAt = now }
                         // Frozen ends only when the odometer has moved past the value it was frozen at (a new link
@@ -732,7 +798,7 @@ class MidService : Service() {
                         }
                         if (odoNow != null && (spdNow ?: 0f) >= 15f) { if (fastSince == 0L) fastSince = now } else fastSince = 0L
                         if (!Bike.dataFrozen && odoNow != null && fastSince > 0L && now - fastSince > 90_000L && now - odoChangedAt > 90_000L) {
-                            Bike.freeze(odoNow); Bike.blockWrites(this); tm.clearLive(); refreshNotif(); BikeWidget.update(this)
+                            Bike.freeze(odoNow); Bike.blockWrites(this); tm.clearLive(); refreshNotif(); BikeWidget.update(this); Bike.dumpTrace("values frozen")
                             Alerts.notify(this, L.t("The MID's values look frozen (speed shown but the odometer doesn't move). When it is safe, stop and switch the bike off and on."))
                             Bike.log("MID values look frozen - writes stopped")
                         }
@@ -796,6 +862,9 @@ class MidService : Service() {
                     val own = Mid.splitNav(s.navText)
                     val line: String? = when {
                         Bike.speedWarn.active -> "! " + L.t("SLOW DOWN") + " ${s.speedLimit}"
+                        // Pictures on: range and directions are in the picture; the text line (drawn over it without
+                        // erasing) stays unused, so nothing overlaps. Only the speed warning uses it.
+                        picturesOn -> null
                         nav != null -> (navTurnWord(nav.turn) + " " + nav.street).trim().take(Mid.NAV_MAX)   // distance: in the picture
                         own.size > 1 -> null                                                     // your own long text rotates
                         own.size == 1 -> own[0]
@@ -804,7 +873,10 @@ class MidService : Service() {
                         s.navDate -> Mid.dateText()
                         else -> null
                     }
-                    if (talk) {
+                    if (talk && picturesOn) {
+                        if (line != null && line != navShown) showText(line)
+                        else if (line == null && navShown.isNotEmpty()) { navShown = ""; lastFrameKey = "" }   // the next picture wipes it
+                    } else if (talk) {
                         if (line == null && own.size > 1) {
                             if (now - lastNav >= 15_000 || navShown.isEmpty()) {                 // own long text: a part every 15 s
                                 navIdx %= own.size
@@ -886,6 +958,9 @@ class MidService : Service() {
     private var lastGear: String? = null
     @Volatile private var connectedAt = 0L
     @Volatile private var pairingAllowed = false   // see ClassicLink.allowPairing
+    @Volatile private var notPairedWarned = false
+    /** When the MID last answered on a link of this service (Mono): a paired way that worked is retried for 30 min after. */
+    @Volatile private var lastAnsweredAt = 0L
     private var lastSohDay: String? = null
 
     private fun navTurnWord(t: NavParser.Turn) = L.t(when (t) {

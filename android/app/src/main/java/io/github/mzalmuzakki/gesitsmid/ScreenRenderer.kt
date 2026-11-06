@@ -70,6 +70,14 @@ object ScreenRenderer {
         c.drawRoundRect(RectF(l, top, r, b), 5f, 5f, box)
     }
 
+    /** The adaptive range in the top row, large and bright (it used to be small grey text, hard to read on the MID). */
+    private fun rangeBig(c: Canvas, rangeKm: Float?, x: Float) {
+        val v = paint(20f, GREEN)
+        val num = fmt(rangeKm)
+        c.drawText(num, x, 19f, v)
+        c.drawText(" km", x + v.measureText(num), 19f, paint(13f, TEXT))
+    }
+
     /** Top row shared by MAIN and TRIP: clock, title/range, gear, mode. */
     private fun topRow(c: Canvas, t: Telemetry, label: String?) {
         val w = DW
@@ -89,7 +97,8 @@ object ScreenRenderer {
 
     /** TRIP page: 2 x 2 tiles - distance, energy, Wh/km, km per 1 %. */
     private fun drawTrip(c: Canvas, t: Telemetry, rangeKm: Float?, trip: TripTracker?) {
-        topRow(c, t, L.t("TRIP") + (rangeKm?.let { "  ${fmt(it)} " + L.t("km left") } ?: ""))
+        topRow(c, t, null)
+        rangeBig(c, rangeKm, 70f)
         val tiles = listOf(
             L.t("DISTANCE") to (trip?.let { String.format(Locale.US, "%.1f km", it.km) } ?: "--"),
             L.t("ENERGY USED") to (trip?.let { String.format(Locale.US, "%.0f Wh", it.energyWh) } ?: "--"),
@@ -166,7 +175,7 @@ object ScreenRenderer {
 
         // row 1 (0-20): clock, adaptive range, gear, mode
         c.drawText(SimpleDateFormat("HH:mm", Locale.US).format(Date()), 6f, 17f, med)
-        if (rangeKm != null) c.drawText("${fmt(rangeKm)} km", 72f, 16f, paint(14f, MUTED))
+        rangeBig(c, rangeKm, 70f)
         val mode = t.mode ?: "--"
         val mc = when (mode) { "ECO" -> GREEN; "URBAN" -> BLUE; "SPORT" -> RED; else -> MUTED }
         val mw = small.measureText(mode) + 14f

@@ -38,6 +38,12 @@ class ClassicLink(
     private val allowPairing: Boolean = true,
     /** The method that worked last time, tried first. */
     private val preferred: String? = null,
+    /**
+     * This phone and the bike were connected through a paired way recently. Right after the MID drops the link
+     * Android sometimes reports the bike as not paired although it is (tapping Connect then works at once, with
+     * no pairing request), so the way that worked is tried again anyway.
+     */
+    private val pairedRecently: Boolean = false,
 ) : MidLink {
     override val name = "Classic"
     @Volatile private var socket: BluetoothSocket? = null
@@ -52,15 +58,20 @@ class ClassicLink(
 
     /** The method that worked: "insecure", "secure" or "ch1". */
     var usedMethod: String? = null; private set
+    /** What Android said about the pairing (for the log). */
+    var bondInfo = ""; private set
 
     override fun open() {
         // insecure: no pairing needed (survives the MID forgetting this phone) and never pops up a request.
         // secure: the usual paired connection, as GRID Mobile / GESITS Dashboard do.  ch1: RFCOMM channel 1.
         // The way that worked last time goes first, so reconnecting doesn't wait for a way this MID refuses.
         // Without a pairing, the paired ways are skipped on background retries so Android doesn't keep asking.
-        val bonded = device.bondState == BluetoothDevice.BOND_BONDED
+        val bondState = device.bondState
+        val listed = try { android.bluetooth.BluetoothAdapter.getDefaultAdapter()?.bondedDevices?.any { it.address == device.address } == true } catch (_: Exception) { false }
+        val bonded = bondState == BluetoothDevice.BOND_BONDED || listed
+        bondInfo = "bond state $bondState, in paired list: $listed"
         val order = (listOfNotNull(preferred) + listOf("insecure", "secure", "ch1")).distinct()
-            .filter { it == "insecure" || bonded || allowPairing }
+            .filter { it == "insecure" || bonded || allowPairing || (pairedRecently && it == preferred) }
         if (order.isEmpty()) throw IOException(NOT_PAIRED)
         var firstError: Exception? = null
         var s: BluetoothSocket? = null

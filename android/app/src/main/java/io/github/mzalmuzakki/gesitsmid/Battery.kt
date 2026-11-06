@@ -208,24 +208,34 @@ object NavParser {
         words.map { w -> Triple(turn, w, Regex("(?<![\\p{L}\\d])" + Regex.escape(w).replace(" ", "\\E\\s+\\Q") + "(?![\\p{L}\\d])", RegexOption.IGNORE_CASE)) }
     }
     /**
-     * Where the street name starts ("onto Jl. Pasar Kiri", "ke Jl. ..."): turn words after it are part of a name,
-     * not the manoeuvre. "ke" only with a space after it and not in "ke kiri/kanan", so "keluar ke-2" (roundabout
-     * exit) and "sedikit ke kiri" stay.
+     * Where the street name starts. Prepositions ("onto", "to", "ke" ...) count only after the first turn word, so
+     * "At the roundabout, take the exit onto ..." keeps its turn; "ke" not in "ke kiri/kanan" and only with a
+     * space after it ("keluar ke-2" stays). Street prefixes (Jl., Jln., Jalan - capitalised) always start a name,
+     * so a bare "Jl. Pasar Kiri" has no turn.
      */
-    private val streetStart = Regex("""(?i)(?<![\p{L}\d])(onto|to|toward|towards|menuju|ke(?!\s+(?:kiri|kanan)\b)|via|on|at|jl\.|jln\.?|jalan)(?=\s)""")
+    private val preposition = Regex("""(?i)(?<![\p{L}\d])(onto|to|toward|towards|menuju|ke(?!\s+(?:kiri|kanan)(?![\p{L}\d]))|via|on|at)(?=\s)""")
+    private val streetPrefix = Regex("""(?<![\p{L}\d])(Jl\.|Jln\.?|Jalan)(?=\s)""")
+
+    private fun firstTurnAt(line: String): Int = turnRegex.mapNotNull { it.third.find(line)?.range?.first }.minOrNull() ?: -1
 
     /** The manoeuvre part of one instruction line: the text before the street name. */
-    fun manoeuvre(line: String): String = streetStart.find(line)?.let { line.substring(0, it.range.first) } ?: line
+    fun manoeuvre(line: String): String {
+        val turnAt = firstTurnAt(line)
+        if (turnAt < 0) return ""
+        val cuts = listOfNotNull(
+            streetPrefix.find(line)?.range?.first,
+            preposition.findAll(line).map { it.range.first }.firstOrNull { it > turnAt },
+        )
+        return cuts.minOrNull()?.let { line.substring(0, it) } ?: line
+    }
 
+    /** The turn in one instruction line: the first turn phrase before the street name (a longer phrase wins a tie). */
     fun turnOf(s: String): Turn {
+        val m = manoeuvre(s)
         var best: Turn = Turn.NONE; var bestAt = Int.MAX_VALUE; var bestLen = 0
-        for (part in s.split("  ")) {                           // title and text, each cut before its street name
-            val m = manoeuvre(part)
-            for ((turn, word, re) in turnRegex) {
-                val at = re.find(m)?.range?.first ?: continue
-                val pos = s.indexOf(part) + at
-                if (pos < bestAt || (pos == bestAt && word.length > bestLen)) { best = turn; bestAt = pos; bestLen = word.length }
-            }
+        for ((turn, word, re) in turnRegex) {
+            val at = re.find(m)?.range?.first ?: continue
+            if (at < bestAt || (at == bestAt && word.length > bestLen)) { best = turn; bestAt = at; bestLen = word.length }
         }
         return best
     }
@@ -235,7 +245,8 @@ object NavParser {
         val all = listOfNotNull(title, text).joinToString("  ").trim()
         if (all.isEmpty()) return null
         val d = dist.find(title ?: "") ?: dist.find(all)
-        val turn = turnOf(all)
+        // the instruction line (text) first; the title (often the distance, sometimes the turn) if it has none
+        val turn = text?.let { turnOf(it) }?.takeIf { it != Turn.NONE } ?: title?.let { turnOf(it) } ?: Turn.NONE
         // street: the part after "onto/to/ke/menuju", else the text without the distance
         val streetSrc = text?.takeIf { it.isNotBlank() } ?: title ?: ""
         val m = Regex("""(?i)\b(onto|to|toward|towards|menuju|ke)\s+(.+)$""").find(streetSrc)
