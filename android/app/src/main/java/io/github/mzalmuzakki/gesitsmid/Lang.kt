@@ -74,6 +74,9 @@ object L {
             "Setelah MID berhenti merespons, aplikasi hanya bertanya: tanpa teks, jam, atau gambar. Periksa MID: jika kecepatan, lampu sein, dan jam normal, ketuk di bawah.",
         "The MID works normally again" to "MID sudah normal lagi",
         "MID values look frozen" to "Nilai MID tampak macet",
+        "Range only" to "Jarak saja",
+        "The bike's Bluetooth pairing was lost. When stopped, tap \"Pair\" on the pairing request to reconnect." to
+            "Pairing Bluetooth motor hilang. Saat berhenti, ketuk \"Sambungkan/Pair\" pada permintaan pairing untuk terhubung lagi.",
         "Connected - questions only: open the app and confirm the MID works" to "Terhubung - hanya bertanya: buka aplikasi dan pastikan MID normal",
         "Pictures, clock and text are paused (questions only) since the MID stopped answering. Check the MID, then tap \"The MID works normally again\" above." to
             "Gambar, jam, dan teks dijeda (hanya bertanya) sejak MID berhenti merespons. Periksa MID, lalu ketuk \"MID sudah normal lagi\" di atas.",

@@ -407,7 +407,7 @@ class MainActivity : Activity() {
         }
         pagesBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }.also { sc.addView(it) }
         Ui.text(this, pagesBox, "Pages", 12f, Ui.MUTED)
-        Ui.segmented(this, pagesBox, listOf("auto" to "Auto", "main" to "Details", "trip" to "Trip", "big" to "Big", "rotate" to "Rotate"),
+        Ui.segmented(this, pagesBox, listOf("range" to "Range only", "auto" to "Auto", "main" to "Details", "trip" to "Trip", "big" to "Big", "rotate" to "Rotate"),
             settings.dashStyle) { settings.dashStyle = it }
         Ui.text(this, pagesBox, "Auto: big numbers while riding; details and trip when stopped.", 12f, Ui.MUTED)
         pictureBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }.also { sc.addView(it) }

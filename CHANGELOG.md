@@ -5,6 +5,20 @@ Versions are **v\<major\>.\<xx\>.\<yy\>** (see `android/version.properties`):
 * **xx**: feature milestone (new or changed things you notice); resets yy
 * **yy**: fixes and polish only
 
+## v0.22.00 - gentler pictures, re-pairing after a drop
+The v0.21 logs (11-12 Nov) showed a picture within seconds before every captured freeze or drop - twice the MID
+never answered again right after one, and a photo shows the picture half drawn (stripes) on the frozen MID. The
+drops ("Broken pipe", at a standstill) left the phone really unpaired (bond state 10, not in the paired list).
+* **Pictures show only the range** ("Range only", the new default, set once for everyone; the other pages can
+  still be chosen): one large number, the smallest picture, and it changes only when the range does.
+* **Pictures far gentler:** at most one a minute (was 10 s), an unchanged one again only after 5 minutes (was
+  1), nothing asked for 3 s after a picture (was 1 s) so the MID can draw it, and a picture goes out only
+  right after the MID answered (3 answers in a row, the last under 1 s ago).
+* **No writes into a MID that just went quiet:** clock, text and pictures need the last 2 questions answered
+  (v0.21 sent a picture 3 s after the MID had stopped answering).
+* **Re-pairing after a drop:** when the pairing is gone and the MID answered in the last 30 minutes, the app
+  asks Android for the pairing itself, once per drop, with a notification - tap "Pair" when stopped.
+
 ## v0.21.00 - reconnecting, pictures without overlap, a log that stays
 After riding v0.20.01: the MID froze about 3 times per commute (speed and turn signals stuck), even while the app
 only asked questions; after a link drop the app kept saying "not paired" although tapping Connect worked at once;

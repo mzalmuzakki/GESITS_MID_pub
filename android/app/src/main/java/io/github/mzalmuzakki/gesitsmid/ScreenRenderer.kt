@@ -42,7 +42,7 @@ object ScreenRenderer {
     private const val DW = 320f
     private const val DH = 128f
 
-    enum class Page { MAIN, TRIP, BIG, NAV }
+    enum class Page { MAIN, TRIP, BIG, NAV, RANGE }
 
     fun render(t: Telemetry, rangeKm: Float?, m: Margins = Margins(), page: Page = Page.MAIN, trip: TripTracker? = null): Bitmap {
         val bmp = Bitmap.createBitmap(Mid.FRAME_W, Mid.FRAME_H, Bitmap.Config.ARGB_8888)
@@ -59,6 +59,7 @@ object ScreenRenderer {
             Page.TRIP -> drawTrip(c, t, rangeKm, trip)
             Page.BIG -> drawBig(c, t, rangeKm)
             Page.NAV -> drawNav(c, Bike.nav)
+            Page.RANGE -> drawRange(c, rangeKm)
         }
         return bmp
     }
@@ -143,6 +144,18 @@ object ScreenRenderer {
         val street = n.street.take(26)
         c.drawText(street, 132f, 86f, paint(16f, TEXT))
         if (n.eta != null) c.drawText((if (L.indo) "Tiba " else "ETA ") + n.eta, 132f, 110f, paint(14f, MUTED))
+    }
+
+    /**
+     * RANGE page: only the adaptive range, very large (the MID itself already shows speed, battery %, clock and
+     * temperature). Plain black with one number: the smallest picture to send, and it changes only with the range.
+     */
+    private fun drawRange(c: Canvas, rangeKm: Float?) {
+        val num = paint(84f, GREEN).apply { textAlign = Paint.Align.CENTER }
+        c.drawText(fmt(rangeKm), DW / 2 - 24f, 92f, num)
+        val half = num.measureText(fmt(rangeKm)) / 2
+        c.drawText("km", DW / 2 - 24f + half + 8f, 92f, paint(26f, TEXT))
+        c.drawText(L.t("RANGE"), DW / 2 - 24f - half, 118f, paint(16f, MUTED))
     }
 
     /** BIG page for riding: battery %, power and range only, in large type. */

@@ -33,7 +33,7 @@ object Mono {
 object Traffic {
     const val MIN_GAP_MS = 500L
     const val ANSWER_WAIT_MS = 300L
-    const val PICTURE_MIN_INTERVAL_MS = 10_000L
+    const val PICTURE_MIN_INTERVAL_MS = 60_000L     // v0.22: every freeze in the logs came within seconds of a picture
     /** GRID Mobile's own MID pictures are about 4000 characters; 7000 is where the MID is said to freeze. */
     const val PICTURE_MAX_CHARS = 4000
 
@@ -61,7 +61,7 @@ object Traffic {
     }
 
     /** How long the MID is left alone after [cmd]: a picture needs time to be received and drawn. */
-    fun quietAfterMs(cmd: String): Long = if (cmd.startsWith("AT+MAPS")) 1000L + cmd.length / 4 else 0L
+    fun quietAfterMs(cmd: String): Long = if (cmd.startsWith("AT+MAPS")) 3000L + cmd.length / 4 else 0L
 
     /** When the next command may go, given the last one. */
     fun nextAllowedAt(lastSendAt: Long, quietUntil: Long): Long = maxOf(lastSendAt + MIN_GAP_MS, quietUntil)

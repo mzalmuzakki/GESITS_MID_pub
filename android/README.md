@@ -40,9 +40,10 @@ One screen with four tabs at the bottom:
   The Range card also shows energy figures (battery kWh, Wh/km). The range is shown as "RANGE 112 km"
   in the MID's text line, because the MID's own range figure is its own calculation for the original
   battery and can't be replaced over Bluetooth on a G1. The MID draws the text line without erasing, so
-  texts can overlap. **With MID pictures on, the range is drawn large in the picture instead** (Details and
-  Trip pages: green number at the top; Big page: large) and the text line is left unused, except for the
-  speed warning - pictures replace the whole area, so nothing overlaps.
+  texts can overlap. **With MID pictures on, the range is drawn in the picture instead** - by default the
+  picture shows only the range, very large ("Range only"; Details/Trip/Big pages can be chosen) - and the text
+  line is left unused, except for the speed warning, so nothing overlaps. Pictures go out at most once a
+  minute, only right after the MID answered, and the MID is left alone 3 s after each one.
   **Forget learned range** starts over.
 * **Clock sync:** sets the MID clock from your phone on connect and whenever the minute changes.
 * Optionally shows your own text line (rotating every 15 s, 20 characters per step).

@@ -35,7 +35,8 @@ class SafetyTest {
     @Test fun atMostTwoCommandsASecondAndQuietAfterPictures() {
         assertEquals(1500L, Traffic.nextAllowedAt(1000L, 0L))
         val pic = Mid.maps("A".repeat(4000))
-        assertTrue(Traffic.quietAfterMs(pic) >= 1900L)
+        assertTrue(Traffic.quietAfterMs(pic) >= 3900L)   // v0.22: 3 s + the picture's size
+        assertEquals(60_000L, Traffic.PICTURE_MIN_INTERVAL_MS)
         assertEquals(0L, Traffic.quietAfterMs(Mid.query("SOC")))
         assertEquals(5000L, Traffic.nextAllowedAt(1000L, 5000L))
     }

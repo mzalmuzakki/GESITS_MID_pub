@@ -7,6 +7,7 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
 import android.bluetooth.BluetoothManager
+import android.bluetooth.BluetoothDevice
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
@@ -218,6 +219,8 @@ class Settings(ctx: Context) {
     fun migrateSafeDefaults() {
         if (!p.getBoolean("safe016", false))
             p.edit().putString("screen", "off").putInt("frameSec", maxOf(p.getInt("frameSec", 10), 10)).putBoolean("safe016", true).apply()
+        // v0.22: pictures show only the range (smallest picture, changes rarely) - once for everyone, can be changed back.
+        if (!p.getBoolean("safe022", false)) p.edit().putString("dashStyle", "range").putBoolean("safe022", true).apply()
         // v0.17: the AT+TRIP range override is gone for good.
         if (p.contains("rangeOverride")) p.edit().remove("rangeOverride").apply()
     }
@@ -237,7 +240,7 @@ class Settings(ctx: Context) {
     var kmPerPercent: Float get() = p.getFloat("kmpp", 0.5f); set(v) = p.edit().putFloat("kmpp", v).apply()
     var tripState: String? get() = p.getString("tripState", null); set(v) = p.edit().putString("tripState", v).apply()
     /** "auto" (BIG while riding, MAIN/TRIP when stopped), "main", "trip", "big", "rotate" */
-    var dashStyle: String get() = p.getString("dashStyle", "auto")!!; set(v) = p.edit().putString("dashStyle", v).apply()
+    var dashStyle: String get() = p.getString("dashStyle", "range")!!; set(v) = p.edit().putString("dashStyle", v).apply()
     // Alarms, savings comparison, weekly target, parking location
     var alarmsOn: Boolean get() = p.getBoolean("alarms", true); set(v) = p.edit().putBoolean("alarms", v).apply()
     var socLow: Float get() = p.getFloat("socLow", 20f); set(v) = p.edit().putFloat("socLow", v).apply()
@@ -420,8 +423,19 @@ class MidService : Service() {
         val onClosed: () -> Unit = { Bike.connected = false; Bike.telemetry.clearLive(); setStatus("Connection lost - retrying") }
         val mayPair = pairingAllowed; pairingAllowed = false          // one pairing request per Connect, at most
         val l: MidLink = if (s.linkType == "ble") BleLink(this, device, onData, onClosed)
-            else ClassicLink(device, onData, onClosed, mayPair, s.classicMethod,
-                pairedRecently = s.classicMethod != "insecure" && lastAnsweredAt > 0L && Mono.now() - lastAnsweredAt < 30 * 60_000L)
+            else {
+                // The MID tends to forget the pairing when it resets itself (the "Broken pipe" drops); Android then
+                // removes it too and only a new pairing gets back in. So once per drop - if the MID answered in the
+                // last 30 min - the app may ask Android for the pairing itself: you only tap "Pair" (when stopped).
+                val recent = lastAnsweredAt > 0L && Mono.now() - lastAnsweredAt < 30 * 60_000L
+                val repair = !mayPair && recent && !repairAsked && device.bondState != BluetoothDevice.BOND_BONDED
+                if (repair) {
+                    repairAsked = true
+                    Bike.log("Pairing lost after a drop - asking Android to pair again (tap Pair when stopped)")
+                    Alerts.notify(this, L.t("The bike's Bluetooth pairing was lost. When stopped, tap \"Pair\" on the pairing request to reconnect."))
+                }
+                ClassicLink(device, onData, onClosed, mayPair || repair, s.classicMethod, pairedRecently = recent)
+            }
         connectingLink = l
         setStatus("Connecting (${l.name}) to ${s.deviceName ?: addr}...")
         return try {
@@ -455,6 +469,10 @@ class MidService : Service() {
         if (!question && !writeAllowed(Mono.now())) return false
         val asked = awaitSince
         while (awaitKey != null && Mono.now() - asked < Traffic.ANSWER_WAIT_MS) Thread.sleep(10)
+        if (asked > 0L && asked != lastCounted) {            // the previous question: answered or not?
+            lastCounted = asked
+            answeredInRow = if (awaitKey == null) answeredInRow + 1 else 0
+        }
         awaitKey = null
         val wait = Traffic.nextAllowedAt(lastSend, quietUntil) - Mono.now()
         if (wait > 0) Thread.sleep(wait)
@@ -496,7 +514,7 @@ class MidService : Service() {
      */
     private fun picturePayload(s: Settings, now: Long, force: Boolean = false): String? {
         val key = frameKey(s)
-        if (!force && key == lastFrameKey && now - lastFrameSent < 60_000) return null
+        if (!force && key == lastFrameKey && now - lastFrameSent < 300_000) return null   // unchanged: again after 5 min (MID restarted?)
         val b64 = renderPayload(s) ?: run {
             if (s.screenMode == "dashboard") Bike.lastFrameInfo = L.t("Dashboard picture too large")
             return null
@@ -515,7 +533,9 @@ class MidService : Service() {
         val p = t.powerW?.let { Math.round(it / 100f) }   // 0.1 kW
         val trip = synchronized(Bike.trip) { "${Math.round(Bike.trip.km * 10)}/${Math.round(Bike.trip.energyWh)}" }
         val nav = if (s.navOn && Bike.navFresh()) Bike.nav else null
-        return listOf(pageFor(s, frameNo + 1), nav, SimpleDateFormat("HH:mm", Locale.US).format(Date()), t.raw["SOC"], t.mode, t.gear,
+        val page = pageFor(s, frameNo + 1)
+        if (page == ScreenRenderer.Page.RANGE) return listOf(page, Bike.rangeKm()?.let { Math.round(it) }, s.margins).joinToString("|")
+        return listOf(page, nav, SimpleDateFormat("HH:mm", Locale.US).format(Date()), t.raw["SOC"], t.mode, t.gear,
             p, t.raw["TBAT"], t.raw["TMOT"], t.raw["TINV"], t.errorMask, Bike.rangeKm()?.let { Math.round(it) }, trip, s.margins).joinToString("|")
     }
 
@@ -526,6 +546,7 @@ class MidService : Service() {
             "main" -> ScreenRenderer.Page.MAIN
             "trip" -> ScreenRenderer.Page.TRIP
             "big" -> ScreenRenderer.Page.BIG
+            "range" -> ScreenRenderer.Page.RANGE
             "rotate" -> ScreenRenderer.Page.values()[n % 3]
             else -> if (moving) ScreenRenderer.Page.BIG
                     else if ((n / 2) % 2 == 0) ScreenRenderer.Page.MAIN else ScreenRenderer.Page.TRIP
@@ -582,7 +603,11 @@ class MidService : Service() {
     private val live = Liveness()
     @Volatile private var connectingLink: MidLink? = null
     @Volatile private var gentleNow = false
-    private fun writeAllowed(now: Long) = live.canWrite(now) && Bike.midHungSince == 0L && !Bike.writesBlocked && !Bike.dataFrozen && !gentleNow
+    /** Questions answered in a row (0 after one went unanswered): no writes into a MID that just went quiet. */
+    @Volatile private var answeredInRow = 0
+    private var lastCounted = 0L
+    private fun writeAllowed(now: Long) = live.canWrite(now) && answeredInRow >= 2 &&
+        Bike.midHungSince == 0L && !Bike.writesBlocked && !Bike.dataFrozen && !gentleNow
 
     private fun warnHung(why: String) {
         if (!Bike.hangWarned) { Alerts.notify(this, L.t("The MID stopped answering. When it is safe, stop and switch the bike off and on. Until it answers again the app only asks one question every 15 s.")); Bike.hangWarned = true }
@@ -678,7 +703,7 @@ class MidService : Service() {
                         }
                         val linkAt = Mono.now()
                         hadLink = true; answeredHere = false; Bike.outbox.clear()
-                        live.connected(linkAt); Bike.lastRxAt = 0L; lastMovingAt = 0L
+                        live.connected(linkAt); Bike.lastRxAt = 0L; lastMovingAt = 0L; answeredInRow = 0
                         lastMinute = -1; lastFrameKey = ""; lastPolled.clear(); lastSave = linkAt
                         navShown = ""; lastFrame = 0L
                         lastOdoSeen = Float.NaN; odoChangedAt = linkAt; fastSince = 0L
@@ -692,7 +717,7 @@ class MidService : Service() {
                     if (live.lastAnswerAt > 0L) lastAnsweredAt = live.lastAnswerAt
                     if (live.lastAnswerAt > 0L && !answeredHere) {
                         // First answer on this link.
-                        notPairedWarned = false
+                        notPairedWarned = false; repairAsked = false
                         answeredHere = true; suspectHang = false; silentLinks = 0
                         backoff = 2000L                          // only a MID that answers resets the pause
                         if (Bike.midHungSince > 0L) {
@@ -891,7 +916,8 @@ class MidService : Service() {
                     // minute), at most one every 10 s, never bigger than the MID can take; a text change never forces one.
                     // After each picture the current text is drawn again (the picture wiped that area).
                     val frameMs = maxOf(s.frameSeconds * 1000L, Traffic.PICTURE_MIN_INTERVAL_MS)
-                    if (talk && picturesOn && now - lastFrameSent >= frameMs && now - lastFrame >= frameMs) {
+                    if (talk && picturesOn && now - lastFrameSent >= frameMs && now - lastFrame >= frameMs &&
+                        answeredInRow >= 3 && now - live.lastAnswerAt < 1000L) {   // only to a MID that is answering right now
                         lastFrame = now
                         if (link?.picturesOk == false) {
                             Bike.lastFrameInfo = L.t("This Bluetooth LE link is too slow for pictures - not sent")
@@ -959,6 +985,8 @@ class MidService : Service() {
     @Volatile private var connectedAt = 0L
     @Volatile private var pairingAllowed = false   // see ClassicLink.allowPairing
     @Volatile private var notPairedWarned = false
+    /** A pairing request was already made after this drop (one per drop at most). */
+    @Volatile private var repairAsked = false
     /** When the MID last answered on a link of this service (Mono): a paired way that worked is retried for 30 min after. */
     @Volatile private var lastAnsweredAt = 0L
     private var lastSohDay: String? = null
