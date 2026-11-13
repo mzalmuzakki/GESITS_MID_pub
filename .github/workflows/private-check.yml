@@ -1,0 +1,56 @@
+name: Private check
+
+# Runs in the PRIVATE repo (mzalmuzakki/GESITS_display) on every push to the development branch:
+# unit tests and a debug build, before anything goes to the public repo, where the signed APK is built,
+# tested in the emulator and published. No secrets, no signing key, nothing published from here.
+
+on:
+  push:
+    branches: [ccr-9b2d12ac-qsfr7j]
+    paths:
+      - "android/**"
+      - ".github/workflows/private-check.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: private-check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    if: github.repository == 'mzalmuzakki/GESITS_display'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4
+        with:
+          gradle-version: "8.9"
+
+      - name: Unit tests
+        run: gradle -p android testDebugUnitTest --no-daemon
+
+      - name: Debug build (compiles every file, incl. the Android-only ones)
+        run: gradle -p android assembleDebug --no-daemon
+
+      - name: Test summary
+        if: always()
+        run: |
+          python3 - <<'EOF'
+          import glob, xml.etree.ElementTree as ET
+          t = f = 0
+          for p in glob.glob("android/app/build/test-results/**/*.xml", recursive=True):
+              r = ET.parse(p).getroot(); t += int(r.get("tests", 0)); f += int(r.get("failures", 0)) + int(r.get("errors", 0))
+          print(f"{t} tests, {f} failed")
+          EOF
