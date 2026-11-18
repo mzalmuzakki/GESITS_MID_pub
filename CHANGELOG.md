@@ -5,6 +5,9 @@ Versions are **v\<major\>.\<xx\>.\<yy\>** (see `android/version.properties`):
 * **xx**: feature milestone (new or changed things you notice); resets yy
 * **yy**: fixes and polish only
 
+## v0.23.02
+* Range picture on the MID: the number, "km" and the label are now white (were green/grey), much brighter.
+
 ## v0.23.01
 * Clock sync only once: on the first connection after 2 hours without one (e.g. the first ride of the
   day), no longer every minute. The log says whether the clock was set and why.

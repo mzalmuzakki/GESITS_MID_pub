@@ -34,7 +34,7 @@ object Mid {
     const val W = 320
     const val H = 128
 
-    /** The range picture: one big green number on black (small JPEG, changes only with the range). */
+    /** The range picture: one big white number on black (small JPEG, changes only with the range). */
     fun rangePicture(rangeKm: Float?, label: String): Bitmap {
         val bmp = Bitmap.createBitmap(W, H, Bitmap.Config.ARGB_8888)
         val c = Canvas(bmp)
@@ -43,12 +43,12 @@ object Mid {
             textSize = size; this.color = color; typeface = Typeface.DEFAULT_BOLD; textAlign = align
         }
         val num = rangeKm?.let { String.format(Locale.US, "%.0f", it) } ?: "--"
-        val big = paint(84f, Color.rgb(60, 220, 110), Paint.Align.CENTER)
+        val big = paint(84f, Color.WHITE, Paint.Align.CENTER)   // pure white: the brightest the MID can show
         val cx = W / 2f - 24f
         c.drawText(num, cx, 92f, big)
         val half = big.measureText(num) / 2
         c.drawText("km", cx + half + 8f, 92f, paint(26f, Color.WHITE))
-        c.drawText(label, cx - half, 118f, paint(16f, Color.rgb(150, 155, 165)))
+        c.drawText(label, cx - half, 118f, paint(16f, Color.rgb(230, 230, 230)))
         return bmp
     }
 
