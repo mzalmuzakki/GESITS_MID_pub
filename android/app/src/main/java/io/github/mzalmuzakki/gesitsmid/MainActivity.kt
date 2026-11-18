@@ -139,7 +139,7 @@ class MainActivity : Activity() {
         switch("Range picture (big number)", s.rangePicture) { s.rangePicture = it }
         number("Picture at most every (s)", s.pictureEverySec) { s.pictureEverySec = it }
         switch("Range in the text line", s.rangeText) { s.rangeText = it }
-        switch("Set the MID clock", s.clock) { s.clock = it }
+        switch("Set the MID clock (first connection after 2 h off)", s.clock) { s.clock = it }
 
         header("QUESTIONS TO THE MID")
         val rg = RadioGroup(this).also { col.addView(it) }

@@ -10,7 +10,8 @@ on the bike what works and what doesn't. The most important thing is the **range
 * **Range** = battery % x km per 1 %, learned from the odometer and battery % (last 40 % of battery ridden).
   The learned range from older versions is kept. Shown large in the app and the notification.
 * On the MID: the range as a **picture** (one big number, at most once a minute by default, again when the
-  number changes and every 5 minutes), and/or in the **text line** ("RANGE 113 km"), and the **clock**.
+  number changes and every 5 minutes), and/or in the **text line** ("RANGE 113 km"), and the **clock** (once, on the first connection after
+  2 hours without one).
   Each can be switched off.
 * If the MID doesn't answer for 15 s (settable, 0 = never), the app closes the link and connects again.
 * If the MID asks to pair, the app can try to accept it by itself (PIN 1234 by default, settable).

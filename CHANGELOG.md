@@ -5,6 +5,10 @@ Versions are **v\<major\>.\<xx\>.\<yy\>** (see `android/version.properties`):
 * **xx**: feature milestone (new or changed things you notice); resets yy
 * **yy**: fixes and polish only
 
+## v0.23.01
+* Clock sync only once: on the first connection after 2 hours without one (e.g. the first ride of the
+  day), no longer every minute. The log says whether the clock was set and why.
+
 ## v0.23.00 - rewritten from the beginning
 The MID kept freezing and the link kept dropping with v0.21-v0.22, also without pictures. So the app was
 rewritten small: one screen, the range first, every feature a switch, no safety rules, and everything in the log,

@@ -50,6 +50,8 @@ class Settings(ctx: Context) {
     var pictureEverySec: Int get() = i("pictureSec", 60); set(v) = p.edit().putInt("pictureSec", v).apply()
     var rangeText: Boolean get() = b("rangeText", false); set(v) = p.edit().putBoolean("rangeText", v).apply()
     var clock: Boolean get() = b("clock", true); set(v) = p.edit().putBoolean("clock", v).apply()
+    /** When the bike was last connected (wall clock ms): the clock is set only after 2 hours without a connection. */
+    var lastLinkAt: Long get() = p.getLong("lastLinkAt", 0L); set(v) = p.edit().putLong("lastLinkAt", v).apply()
     /** No answer for this long while connected: close the link and connect again (0 = never). */
     var silenceSec: Int get() = i("silenceSec", 15); set(v) = p.edit().putInt("silenceSec", v).apply()
     /** Try to accept the MID's pairing request automatically. */
@@ -348,7 +350,7 @@ class MidService : Service() {
         var offSince = System.currentTimeMillis()
         var qi = 0
         var linkAt = 0L
-        var lastMinute = -1
+        var clockDue = false
         var lastPicAt = 0L; var lastPicKm = -1
         var lastTextKm = -1
         var lastSecond = 0L; var lastSave = 0L; var lastStatus = 0L
@@ -375,7 +377,13 @@ class MidService : Service() {
                     Bike.connected = true
                     setStatus("Connected (link ${Bike.links}, ${Bike.method})")
                     reader(so, Bike.links)
-                    lastMinute = -1; lastPicAt = 0L; lastPicKm = -1; lastTextKm = -1
+                    lastPicAt = 0L; lastPicKm = -1; lastTextKm = -1
+                    // Clock: only on the first connection after 2 hours without one (e.g. the morning ride).
+                    val away = System.currentTimeMillis() - s.lastLinkAt
+                    clockDue = s.clock && away >= 2 * 3600_000L
+                    Log.ev(if (clockDue) "Clock will be set (last connection ${if (s.lastLinkAt == 0L) "unknown" else "${away / 60_000} min ago"})"
+                        else "Clock not set (last connection ${away / 60_000} min ago, or clock sync off)")
+                    s.lastLinkAt = System.currentTimeMillis()
                     send("AT+VER?\r\n")
                     Thread.sleep(s.gapMs.toLong())
                     continue
@@ -393,11 +401,11 @@ class MidService : Service() {
                 // Console first.
                 Bike.outbox.poll()?.let { send(it); Thread.sleep(s.gapMs.toLong()) }
 
-                // Clock when the minute changes.
-                if (s.clock) {
+                // Clock: once, on the first connection after 2 hours without one.
+                if (clockDue && Bike.lastRxAt > 0L) {
                     val c = Calendar.getInstance()
-                    val minute = c.get(Calendar.HOUR_OF_DAY) * 60 + c.get(Calendar.MINUTE)
-                    if (minute != lastMinute) { if (send(Mid.time(c.get(Calendar.HOUR_OF_DAY), c.get(Calendar.MINUTE)))) lastMinute = minute; Thread.sleep(s.gapMs.toLong()) }
+                    if (send(Mid.time(c.get(Calendar.HOUR_OF_DAY), c.get(Calendar.MINUTE)))) { clockDue = false; Log.ev("Clock set") }
+                    Thread.sleep(s.gapMs.toLong())
                 }
 
                 // Range on the MID.
@@ -431,6 +439,7 @@ class MidService : Service() {
                         if (learned) { Log.ev("Range learned: " + synchronized(Bike.range) { Bike.range.describe() }); s.rangeState = synchronized(Bike.range) { Bike.range.save() }; lastSave = now }
                         Bike.rangeKm = synchronized(Bike.range) { Bike.range.rangeKm(soc) }
                     }
+                    if (Bike.connected && Bike.lastRxAt > 0L && now - Bike.lastRxAt < 10_000) s.lastLinkAt = now   // still connected
                     if (now - lastSave >= 60_000) { s.rangeState = synchronized(Bike.range) { Bike.range.save() }; lastSave = now }
                     if (now - lastStatus >= 60_000) {
                         lastStatus = now
