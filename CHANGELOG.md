@@ -5,6 +5,17 @@ Versions are **v\<major\>.\<xx\>.\<yy\>** (see `android/version.properties`):
 * **xx**: feature milestone (new or changed things you notice); resets yy
 * **yy**: fixes and polish only
 
+## v0.23.00 - rewritten from the beginning
+The MID kept freezing and the link kept dropping with v0.21-v0.22, also without pictures. So the app was
+rewritten small: one screen, the range first, every feature a switch, no safety rules, and everything in the log,
+to find out on the bike what works. Not tested before release.
+* Range learning kept (the learned km per 1 % carries over). Range on the MID as a picture (default) and/or text.
+* Reconnects after 15 s without an answer; logs every connection try, Bluetooth and pairing event, all traffic.
+* Tries to accept the MID's pairing request by itself; "Pair bike" button.
+* Removed: rides, trips, charts, parking, alarms, directions, speed warning, widget, speedometer, Diagnosis,
+  Indonesian texts, safety rules (traffic limits, hang detection, questions-only lock), unit tests and the
+  emulator test in the build.
+
 ## v0.22.00 - gentler pictures, re-pairing after a drop
 The v0.21 logs (11-12 Nov) showed a picture within seconds before every captured freeze or drop - twice the MID
 never answered again right after one, and a photo shows the picture half drawn (stripes) on the frozen MID. The

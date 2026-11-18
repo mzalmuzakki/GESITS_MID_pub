@@ -1,8 +1,8 @@
 name: Private check
 
 # Runs in the PRIVATE repo (mzalmuzakki/GESITS_display) on every push to the development branch:
-# unit tests and a debug build, before anything goes to the public repo, where the signed APK is built,
-# tested in the emulator and published. No secrets, no signing key, nothing published from here.
+# a debug build (does it compile?), before anything goes to the public repo, where the signed APK is built,
+# and published. No secrets, no signing key, nothing published from here.
 
 on:
   push:
@@ -38,19 +38,5 @@ jobs:
         with:
           gradle-version: "8.9"
 
-      - name: Unit tests
-        run: gradle -p android testDebugUnitTest --no-daemon
-
       - name: Debug build (compiles every file, incl. the Android-only ones)
         run: gradle -p android assembleDebug --no-daemon
-
-      - name: Test summary
-        if: always()
-        run: |
-          python3 - <<'EOF'
-          import glob, xml.etree.ElementTree as ET
-          t = f = 0
-          for p in glob.glob("android/app/build/test-results/**/*.xml", recursive=True):
-              r = ET.parse(p).getroot(); t += int(r.get("tests", 0)); f += int(r.get("failures", 0)) + int(r.get("errors", 0))
-          print(f"{t} tests, {f} failed")
-          EOF

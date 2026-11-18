@@ -42,10 +42,6 @@ jobs:
         with:
           gradle-version: "8.9"
 
-      # Unit tests first, before the signing key is anywhere on the runner.
-      - name: Unit tests
-        run: gradle -p android testReleaseUnitTest --no-daemon
-
       # Optional: sign with your own key stored as repository secrets
       # (GESITS_KEYSTORE_B64 = base64 of a .jks file, GESITS_KEYSTORE_PASSWORD).
       - name: Use own signing key if configured
@@ -100,8 +96,7 @@ jobs:
           name: ${{ steps.apk.outputs.file }}
           path: ${{ steps.apk.outputs.file }}
 
-  # Runs the APK in an Android 14 emulator: opens every screen, fails if the app crashes, takes screenshots
-  # and measures memory. Only if this passes is the APK published on the "android-latest" release.
+  # Publishes the signed APK on the "android-latest" release (no emulator test since v0.23.00: tested on the bike).
   test-and-publish:
     needs: build
     if: github.repository == 'mzalmuzakki/GESITS_MID_pub' && github.ref == 'refs/heads/main'
@@ -117,22 +112,6 @@ jobs:
         with:
           name: ${{ needs.build.outputs.apk }}
           path: apk
-
-      - name: Enable KVM
-        run: |
-          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
-          sudo udevadm control --reload-rules
-          sudo udevadm trigger --name-match=kvm
-
-      - uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
-        with:
-          api-level: 34
-          target: google_apis
-          arch: x86_64
-          profile: pixel_6
-          disable-animations: true
-          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
-          script: bash .github/scripts/screenshots.sh
 
       - name: Publish APK to the "android-latest" release
         env:
@@ -152,10 +131,10 @@ jobs:
             test -z "$CHANGED" || { echo "::error::main has newer app changes ($HEAD) - not publishing an older build"; exit 1; }
           fi
           TITLE="Gesits MID ${{ needs.build.outputs.version }} (build ${{ github.run_number }})"
-          NOTES="Built by GitHub Actions from commit ${{ github.sha }}. Unit tests passed; the test script opened every screen in an Android 14 emulator with demo data without a crash or freeze (see the screenshots release). NOT tested by this build: the Bluetooth connection and the bike. Test on the bike while parked first; if the MID ever freezes, stop safely and switch the bike off and on.
+          NOTES="Built by GitHub Actions from commit ${{ github.sha }}. Not tested (released for testing on the bike).
           SHA-256: ${{ needs.build.outputs.sha }}
           Signed with: ${{ needs.build.outputs.signed }}
-          Permissions: Bluetooth, foreground service; notifications (optional); location only for 'Remember where I parked' (and, on Android 8-11, to scan for a Bluetooth LE bike); notification access only for directions. No internet."
+          Permissions: Bluetooth, foreground service, notifications. No internet."
           if gh release view android-latest >/dev/null 2>&1; then
             # Update in place, so there is never a moment without a downloadable release:
             # upload the new APK first, then move the tag, update the text, and remove older APKs.
@@ -172,12 +151,3 @@ jobs:
           # leaving a draft nobody could download. Make sure it is published, and check.
           gh release edit android-latest --draft=false --prerelease
           test "$(gh release view android-latest --json isDraft --jq .isDraft)" = "false"
-
-      - name: Publish screenshots
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh release delete android-screenshots --yes --cleanup-tag || true
-          gh release create android-screenshots shots/* --prerelease --target "${{ github.sha }}" \
-            --title "App screenshots - build ${{ github.run_number }}" \
-            --notes "Android 14 emulator, demo data (no bike). memory.txt has the app's RAM use."

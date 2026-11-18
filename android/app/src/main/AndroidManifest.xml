@@ -2,30 +2,20 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
-    <!-- Bluetooth only. There is deliberately NO internet permission: this app cannot
-         send anything off your phone. -->
+    <!-- Bluetooth only; no internet permission. -->
     <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
     <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />
-    <!-- Location: needed on Android 8-11 to scan for BLE devices, and (only if you switch on
-         "Remember where I parked") to save the parking spot. It never leaves the phone. -->
-    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
-    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
     <uses-permission android:name="android.permission.BLUETOOTH_SCAN"
         android:usesPermissionFlags="neverForLocation"
         tools:targetApi="s" />
-    <!-- Keep the bike connection alive while the screen is off. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-    <!-- Keep the CPU awake while connected, and let you exempt the app from battery
-         optimisation, so phones don't cut the bike link when you switch apps. -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
     <uses-feature android:name="android.hardware.bluetooth" android:required="true" />
-    <uses-feature android:name="android.hardware.bluetooth_le" android:required="false" />
 
     <application
         android:allowBackup="false"
@@ -38,7 +28,8 @@
         <activity
             android:name=".MainActivity"
             android:exported="true"
-            android:screenOrientation="portrait">
+            android:screenOrientation="portrait"
+            android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
@@ -48,29 +39,6 @@
         <service
             android:name=".MidService"
             android:exported="false"
-            android:foregroundServiceType="connectedDevice|location" />
-
-        <!-- Reads only Google Maps' navigation notification (after you allow notification access). -->
-        <service
-            android:name=".MapsNotifListener"
-            android:exported="true"
-            android:label="Gesits MID directions"
-            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
-            <intent-filter>
-                <action android:name="android.service.notification.NotificationListenerService" />
-            </intent-filter>
-        </service>
-
-        <!-- Home-screen widget: battery, range, connection. -->
-        <receiver android:name=".BikeWidget" android:exported="true" android:label="Gesits MID">
-            <intent-filter>
-                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
-            </intent-filter>
-            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_info" />
-        </receiver>
-
-        <activity android:name=".DiagnosisActivity" android:exported="false" android:label="Diagnosis" />
-        <activity android:name=".SpeedoActivity" android:exported="false" android:label="Speedometer"
-            android:screenOrientation="sensorLandscape" android:theme="@android:style/Theme.Material.NoActionBar.Fullscreen" />
+            android:foregroundServiceType="connectedDevice" />
     </application>
 </manifest>
