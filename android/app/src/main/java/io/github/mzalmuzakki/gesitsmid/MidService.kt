@@ -409,7 +409,8 @@ class MidService : Service() {
                 }
 
                 // Range on the MID.
-                val km = Bike.rangeKm?.let { Math.round(it) }
+                // Only to a MID that has answered on this link (a silent MID got a picture every 15 s in v0.23.00-02).
+                val km = if (Bike.lastRxAt > linkAt) Bike.rangeKm?.let { Math.round(it) } else null
                 if (km != null && s.rangePicture && ((km != lastPicKm && now - lastPicAt >= s.pictureEverySec * 1000L) || now - lastPicAt >= 300_000L)) {
                     val b64 = Mid.toBase64(Mid.rangePicture(Bike.rangeKm, "RANGE"), 6000)
                     if (b64 == null) Log.ev("Range picture too big - not sent")
