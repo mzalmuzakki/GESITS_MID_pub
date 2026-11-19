@@ -5,6 +5,12 @@ Versions are **v\<major\>.\<xx\>.\<yy\>** (see `android/version.properties`):
 * **xx**: feature milestone (new or changed things you notice); resets yy
 * **yy**: fixes and polish only
 
+## v0.23.04
+* The range picture is sent also while the MID doesn't answer (at most once a minute, and once a link has been
+  silent for 15 s): it then says "RANGE - NO DATA" with the last known range. If that label appears on the MID,
+  the MID still receives pictures although its answers have stopped. When answers come back, the normal picture
+  follows. Each picture sent is logged.
+
 ## v0.23.03
 * The range picture and text go only to a MID that has answered on the current link (after a reconnect to a
   silent MID the picture was sent again every 15 s).

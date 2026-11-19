@@ -351,7 +351,7 @@ class MidService : Service() {
         var qi = 0
         var linkAt = 0L
         var clockDue = false
-        var lastPicAt = 0L; var lastPicKm = -1
+        var lastPicAt = 0L; var lastPicKm = -1; var lastPicStale = false
         var lastTextKm = -1
         var lastSecond = 0L; var lastSave = 0L; var lastStatus = 0L
         while (Bike.running) {
@@ -377,7 +377,7 @@ class MidService : Service() {
                     Bike.connected = true
                     setStatus("Connected (link ${Bike.links}, ${Bike.method})")
                     reader(so, Bike.links)
-                    lastPicAt = 0L; lastPicKm = -1; lastTextKm = -1
+                    lastTextKm = -1   // the picture timing carries over links (at most one picture a minute to a silent MID)
                     // Clock: only on the first connection after 2 hours without one (e.g. the morning ride).
                     val away = System.currentTimeMillis() - s.lastLinkAt
                     clockDue = s.clock && away >= 2 * 3600_000L
@@ -408,15 +408,23 @@ class MidService : Service() {
                     Thread.sleep(s.gapMs.toLong())
                 }
 
-                // Range on the MID.
-                // Only to a MID that has answered on this link (a silent MID got a picture every 15 s in v0.23.00-02).
-                val km = if (Bike.lastRxAt > linkAt) Bike.rangeKm?.let { Math.round(it) } else null
-                if (km != null && s.rangePicture && ((km != lastPicKm && now - lastPicAt >= s.pictureEverySec * 1000L) || now - lastPicAt >= 300_000L)) {
-                    val b64 = Mid.toBase64(Mid.rangePicture(Bike.rangeKm, "RANGE"), 6000)
+                // Range on the MID - also while the MID doesn't answer (to see whether it still receives pictures).
+                // No answer for 15 s: the label says "NO DATA" (the number is the last known range).
+                val stale = now - maxOf(Bike.lastRxAt, linkAt) > 15_000L   // not right after connecting
+                val picKm = Bike.rangeKm?.let { Math.round(it) }
+                if (picKm != null && s.rangePicture && (
+                        (stale != lastPicStale && now - lastPicAt >= 10_000L) ||
+                        (picKm != lastPicKm && now - lastPicAt >= s.pictureEverySec * 1000L) ||
+                        now - lastPicAt >= 300_000L)) {
+                    val b64 = Mid.toBase64(Mid.rangePicture(Bike.rangeKm, if (stale) "RANGE - NO DATA" else "RANGE"), 6000)
                     if (b64 == null) Log.ev("Range picture too big - not sent")
-                    else if (send(Mid.maps(b64))) { lastPicAt = now; lastPicKm = km }
+                    else if (send(Mid.maps(b64))) {
+                        Log.ev("Range picture sent: $picKm km" + (if (stale) " (NO DATA - MID not answering)" else ""))
+                        lastPicAt = now; lastPicKm = picKm; lastPicStale = stale
+                    }
                     Thread.sleep(maxOf(s.gapMs.toLong(), 1000L))
                 }
+                val km = if (Bike.lastRxAt > linkAt) picKm else null   // the text line only to a MID that answers
                 if (km != null && s.rangeText && km != lastTextKm) {
                     if (send(Mid.nav("RANGE $km km"))) lastTextKm = km
                     Thread.sleep(s.gapMs.toLong())
