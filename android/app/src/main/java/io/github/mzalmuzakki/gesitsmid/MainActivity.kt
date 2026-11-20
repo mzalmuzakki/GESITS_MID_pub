@@ -188,7 +188,7 @@ class MainActivity : Activity() {
 
         header("LOG (everything sent and received, kept when the app is closed)")
         val lr = row()
-        button(lr, "Copy events") { copy(Log.tail(this, 1500, eventsOnly = true), "events") }
+        button(lr, "Copy events") { copy(Log.tail(this, 5000, eventsOnly = true), "events") }
         button(lr, "Copy all (last 3000)") { copy(Log.tail(this, 3000, eventsOnly = false), "log") }
         val lr2 = row()
         button(lr2, "Save full log to Downloads") { saveLog() }

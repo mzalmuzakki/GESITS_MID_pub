@@ -106,6 +106,10 @@ class MidService : Service() {
     @Volatile private var sock: BluetoothSocket? = null
     private var wake: PowerManager.WakeLock? = null
     private var lastPairPrompt = 0L
+    /** Reconnects in a row to a MID that stays silent (0 = not in a silent stretch): those are logged in one line each. */
+    @Volatile private var silentStreak = 0
+    private var silentSince = 0L
+    private var lastConnectMs = 0L
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -226,7 +230,8 @@ class MidService : Service() {
         val dev = adapter.getRemoteDevice(addr)
         val listed = try { adapter.bondedDevices.any { it.address == addr } } catch (_: Exception) { false }
         val bonded = dev.bondState == BluetoothDevice.BOND_BONDED || listed
-        setStatus("Connecting to ${s.name ?: addr} (bond ${bondName(dev.bondState)}, in paired list: $listed)")
+        val what = "Connecting to ${s.name ?: addr} (bond ${bondName(dev.bondState)}, in paired list: $listed)"
+        if (silentStreak > 0) Bike.status = what else setStatus(what)   // during a silent stretch: one line per reconnect (below)
         try { adapter.cancelDiscovery() } catch (_: Exception) {}
         val methods = (listOfNotNull(s.method) + listOf("insecure", "secure", "ch1")).distinct()
         for (m in methods) {
@@ -248,7 +253,8 @@ class MidService : Service() {
                 so = made
                 sock = made
                 made.connect()
-                Log.ev("  $m: connected in ${System.currentTimeMillis() - t0} ms")
+                lastConnectMs = System.currentTimeMillis() - t0
+                if (silentStreak == 0) Log.ev("  $m: connected in $lastConnectMs ms")
                 s.method = m; Bike.method = m
                 return made
             } catch (e: Exception) {
@@ -260,10 +266,10 @@ class MidService : Service() {
         return null
     }
 
-    private fun closeLink(why: String) {
+    private fun closeLink(why: String, log: Boolean = true) {
         val so = sock ?: return
         sock = null
-        if (Bike.connected || so.isConnected) Log.ev("Closing the link: $why")
+        if (log && (Bike.connected || so.isConnected)) Log.ev("Closing the link: $why")
         Bike.connected = false
         try { so.close() } catch (_: Exception) {}
     }
@@ -375,13 +381,14 @@ class MidService : Service() {
                     linkAt = System.currentTimeMillis()
                     Bike.lastRxAt = 0L
                     Bike.connected = true
-                    setStatus("Connected (link ${Bike.links}, ${Bike.method})")
+                    if (silentStreak > 0) Bike.status = "Connected (link ${Bike.links}, ${Bike.method})"
+                    else setStatus("Connected (link ${Bike.links}, ${Bike.method})")
                     reader(so, Bike.links)
                     lastTextKm = -1   // the picture timing carries over links (at most one picture a minute to a silent MID)
                     // Clock: only on the first connection after 2 hours without one (e.g. the morning ride).
                     val away = System.currentTimeMillis() - s.lastLinkAt
                     clockDue = s.clock && away >= 2 * 3600_000L
-                    Log.ev(if (clockDue) "Clock will be set (last connection ${if (s.lastLinkAt == 0L) "unknown" else "${away / 60_000} min ago"})"
+                    if (clockDue || silentStreak == 0) Log.ev(if (clockDue) "Clock will be set (last connection ${if (s.lastLinkAt == 0L) "unknown" else "${away / 60_000} min ago"})"
                         else "Clock not set (last connection ${away / 60_000} min ago, or clock sync off)")
                     s.lastLinkAt = System.currentTimeMillis()
                     send("AT+VER?\r\n")
@@ -392,9 +399,21 @@ class MidService : Service() {
 
                 // No answer for a while: close and connect again (logged, to see whether that brings the MID back).
                 val heard = maxOf(Bike.lastRxAt, linkAt)
+                if (silentStreak > 0 && Bike.lastRxAt > linkAt) {
+                    Log.ev("MID answers again on link ${Bike.links} after $silentStreak silent reconnects (silent ${(now - silentSince) / 1000} s)")
+                    silentStreak = 0
+                }
                 if (s.silenceSec > 0 && now - heard > s.silenceSec * 1000L) {
-                    Log.ev("No answer for ${(now - heard) / 1000} s (last answer ${if (Bike.lastRxAt == 0L) "never on this link" else "${(now - Bike.lastRxAt) / 1000} s ago"}) - reconnecting")
-                    closeLink("MID silent")
+                    if (silentStreak == 0) {
+                        Log.ev("No answer for ${(now - heard) / 1000} s (last answer ${if (Bike.lastRxAt == 0L) "never on this link" else "${(now - Bike.lastRxAt) / 1000} s ago"}) - reconnecting")
+                        silentSince = if (Bike.lastRxAt > 0L) Bike.lastRxAt else heard
+                        closeLink("MID silent")
+                    } else {
+                        // one short line per silent reconnect
+                        Log.ev("Silent reconnect ${silentStreak}: link ${Bike.links} (${Bike.method}, connected in $lastConnectMs ms) - no answer in ${(now - heard) / 1000} s, silent ${(now - silentSince) / 1000} s")
+                        closeLink("MID silent", log = false)
+                    }
+                    silentStreak++
                     continue
                 }
 

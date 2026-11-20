@@ -5,6 +5,12 @@ Versions are **v\<major\>.\<xx\>.\<yy\>** (see `android/version.properties`):
 * **xx**: feature milestone (new or changed things you notice); resets yy
 * **yy**: fixes and polish only
 
+## v0.23.05
+* Log: while the MID stays silent, each reconnect is one short line ("Silent reconnect N: link ..., connected in
+  .. ms - no answer in 15 s, silent .. s") instead of six, and "MID answers again after N silent reconnects" when
+  it comes back. The first "No answer" of a silent stretch is still logged in full, with the traffic before it.
+* "Copy events" copies up to 5000 lines (was 1500).
+
 ## v0.23.04
 * The range picture is sent also while the MID doesn't answer (at most once a minute, and once a link has been
   silent for 15 s): it then says "RANGE - NO DATA" with the last known range. If that label appears on the MID,
